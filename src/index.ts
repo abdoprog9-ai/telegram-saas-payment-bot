@@ -1,3 +1,11 @@
+// @ts-ignore
+import WebSocket from 'ws';
+
+// Ensure global WebSocket is available in Node.js 20 runtime
+if (typeof globalThis.WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = WebSocket;
+}
+
 import { buildServer } from './server.js';
 import dotenv from 'dotenv';
 

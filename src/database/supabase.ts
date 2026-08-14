@@ -1,7 +1,14 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+// @ts-ignore
+import WebSocket from 'ws';
 
 dotenv.config();
+
+// Polyfill global WebSocket for Node.js 20 and below environments to satisfy @supabase/realtime-js
+if (typeof globalThis.WebSocket === 'undefined') {
+  (globalThis as any).WebSocket = WebSocket;
+}
 
 let supabaseInstance: SupabaseClient | null = null;
 
