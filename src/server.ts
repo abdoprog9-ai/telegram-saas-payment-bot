@@ -10,6 +10,7 @@ import { telegramWebhookRoutes } from './routes/telegram-webhook.js';
 import { productRoutes } from './routes/product-routes.js';
 import { invoiceOrderRoutes } from './routes/invoice-order-routes.js';
 import { paymentRoutes } from './routes/payment-routes.js';
+import { subscriptionRoutes } from './routes/subscription-routes.js';
 
 dotenv.config();
 
@@ -53,7 +54,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 5. Register Payments & Refunds Routes (Phase 5)
   await app.register(paymentRoutes);
 
-  // 6. Health Check Endpoint
+  // 6. Register Subscriptions & Usage Routes (Phase 6)
+  await app.register(subscriptionRoutes);
+
+  // 7. Health Check Endpoint
   app.get('/health', async () => {
     return {
       status: 'ok',
@@ -63,7 +67,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
   });
 
-  // 7. Verify Bot Token without linking (Preview endpoint)
+  // 8. Verify Bot Token without linking (Preview endpoint)
   app.post('/api/v1/bots/preview', async (request, reply) => {
     try {
       const body = z.object({ token: z.string().min(10) }).parse(request.body);
@@ -83,7 +87,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // 8. Register & Link Bot Endpoint (Phase 1)
+  // 9. Register & Link Bot Endpoint (Phase 1)
   app.post('/api/v1/bots/verify-and-link', async (request, reply) => {
     try {
       const parsed = registerBotSchema.parse(request.body);

@@ -39,6 +39,17 @@ export interface Plan {
   updated_at: string;
 }
 
+export interface Subscription {
+  id: string;
+  merchant_id: string;
+  plan_id: string;
+  status: SubscriptionStatus;
+  starts_at: string;
+  expires_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Usage {
   id: string;
   merchant_id: string;
