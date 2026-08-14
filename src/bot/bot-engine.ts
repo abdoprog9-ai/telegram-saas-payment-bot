@@ -8,6 +8,14 @@ import {
   handleInvoicesView,
   handleOrdersView,
   handleSettingsView,
+  startCreateInvoiceWizard,
+  startAddProductWizard,
+  startRestockProductSelection,
+  promptRestockCodes,
+  getAdminSession,
+  setAdminSession,
+  clearAdminSession,
+  handleAdminWizardTextInput,
 } from './admin-handlers.js';
 import { renderCustomerHome, renderCustomerCatalog } from './customer-handlers.js';
 import {
@@ -16,6 +24,7 @@ import {
   handleSuccessfulPayment,
 } from '../services/payment-service.js';
 import { createProductOrder } from '../services/order-service.js';
+import { createProduct } from '../services/product-service.js';
 import { TelegramBot } from '../types/index.js';
 
 interface CachedBot {
@@ -92,7 +101,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     return next();
   });
 
-  // 1. Start Command Handler
+  // 1. Start & Cancel Command Handlers
   bot.command(['start', 'admin'], async (ctx: Context) => {
     const isAdmin = (ctx as any).isAdmin;
     const merchantId = (ctx as any).merchantId;
@@ -106,14 +115,42 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     }
   });
 
-  // 2. Pre-checkout query handler (Telegram Stars verification)
+  bot.command('cancel', async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    const merchantId = (ctx as any).merchantId;
+    const botUsername = (ctx as any).botUsername;
+
+    if (fromId) clearAdminSession(fromId);
+    if ((ctx as any).isAdmin) {
+      await ctx.reply('❌ تم إلغاء العملية الحالية والعودة للرئيسية.');
+      await renderAdminDashboard(ctx, merchantId, botUsername);
+    }
+  });
+
+  // 2. Text Message Handler (Dispatches to Admin Wizard if active)
+  bot.on('message:text', async (ctx: Context, next) => {
+    const fromId = ctx.from?.id;
+    const isAdmin = (ctx as any).isAdmin;
+
+    if (isAdmin && fromId) {
+      const session = getAdminSession(fromId);
+      if (session) {
+        const handled = await handleAdminWizardTextInput(ctx, session);
+        if (handled) return;
+      }
+    }
+
+    return next();
+  });
+
+  // 3. Pre-checkout query handler (Telegram Stars verification)
   bot.on('pre_checkout_query', async (ctx: Context) => {
     if (ctx.preCheckoutQuery) {
       await handlePreCheckoutQuery(bot.api, ctx.preCheckoutQuery);
     }
   });
 
-  // 3. Successful payment handler (Telegram Stars fulfillment)
+  // 4. Successful payment handler (Telegram Stars fulfillment)
   bot.on(':successful_payment', async (ctx: Context) => {
     const payment = ctx.message?.successful_payment;
     const chatId = ctx.chat?.id;
@@ -124,7 +161,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     }
   });
 
-  // 4. Callback Queries Dispatcher
+  // 5. Callback Queries Dispatcher
   bot.on('callback_query:data', async (ctx: Context) => {
     const data = ctx.callbackQuery?.data;
     const isAdmin = (ctx as any).isAdmin;
@@ -141,6 +178,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       return;
     }
 
+    // --- Admin Views ---
     if (data === 'admin:main_menu') {
       await renderAdminDashboard(ctx, merchantId, botUsername);
     } else if (data === 'admin:refresh') {
@@ -155,16 +193,104 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       await handleOrdersView(ctx, merchantId, botId);
     } else if (data === 'admin:settings') {
       await handleSettingsView(ctx, botUsername, botId);
-    } else if (data === 'admin:add_product' || data === 'admin:import_codes') {
-      const infoText =
-        `💡 <b>إدارة الكتالوج والمخزون:</b>\n\n` +
-        `يمكنك إضافة المنتجات واستيراد الأكواد الرقمية عبر الـ API:\n` +
-        `• إضافة منتج: <code>POST /api/v1/products</code>\n` +
-        `• استيراد أكواد: <code>POST /api/v1/products/:id/codes/import</code>\n\n` +
-        `🔒 جميع العمليات تتم بعزل كامل لكل متجر.`;
-      const kb = new InlineKeyboard().text('🔙 العودة للمنتجات', 'admin:products');
-      await ctx.editMessageText(infoText, { parse_mode: 'HTML', reply_markup: kb }).catch(() => {});
-    } else if (data === 'cust:home') {
+    } else if (data === 'admin:cancel_wizard') {
+      if (fromId) clearAdminSession(fromId);
+      await renderAdminDashboard(ctx, merchantId, botUsername);
+    }
+
+    // --- Admin Wizards ---
+    else if (data === 'admin:create_invoice') {
+      await startCreateInvoiceWizard(ctx, merchantId, botId, botUsername);
+    } else if (data === 'admin:skip_inv_desc') {
+      if (fromId) {
+        const session = getAdminSession(fromId);
+        if (session && session.step === 'invoice_desc') {
+          session.data.invoiceDesc = undefined;
+          session.step = 'invoice_amount';
+          setAdminSession(fromId, session);
+
+          const promptText =
+            `📝 <b>إنشاء الفاتورة (الخطوة 3 من 3):</b>\n\n` +
+            `أدخل <b>المبلغ المطلوب سداده بالنجوم (⭐️ Stars)</b> (مثال: <code>50</code>):`;
+          const kb = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
+          await ctx.editMessageText(promptText, { parse_mode: 'HTML', reply_markup: kb });
+        }
+      }
+    } else if (data === 'admin:add_product') {
+      await startAddProductWizard(ctx, merchantId, botId, botUsername);
+    } else if (data === 'admin:skip_prod_desc') {
+      if (fromId) {
+        const session = getAdminSession(fromId);
+        if (session && session.step === 'prod_desc') {
+          session.data.productDesc = undefined;
+          session.step = 'prod_price';
+          setAdminSession(fromId, session);
+
+          const promptText =
+            `📦 <b>إضافة منتج (الخطوة 3 من 4):</b>\n\n` +
+            `أدخل <b>سعر المنتج بالنجوم (⭐️ Stars)</b> (مثال: <code>20</code>):`;
+          const kb = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
+          await ctx.editMessageText(promptText, { parse_mode: 'HTML', reply_markup: kb });
+        }
+      }
+    } else if (data === 'admin:set_prod_type:code') {
+      if (fromId) {
+        const session = getAdminSession(fromId);
+        if (session) {
+          session.data.productType = 'code';
+          session.step = 'prod_codes';
+          setAdminSession(fromId, session);
+
+          const promptText =
+            `📥 <b>إدخال مخزون الأكواد الرقمية:</b>\n\n` +
+            `أرسل الآن قائمة الأكواد في رسالة نصية (<b>كل كود في سطر مستقل</b>):\n\n` +
+            `مثال:\n` +
+            `<code>CODE-111-AAA\nCODE-222-BBB\nCODE-333-CCC</code>`;
+          const kb = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
+          await ctx.editMessageText(promptText, { parse_mode: 'HTML', reply_markup: kb });
+        }
+      }
+    } else if (data === 'admin:set_prod_type:file') {
+      if (fromId) {
+        const session = getAdminSession(fromId);
+        if (session) {
+          clearAdminSession(fromId);
+          try {
+            const product = await createProduct({
+              merchantId,
+              botId,
+              name: session.data.productName || 'منتج رقمي',
+              description: session.data.productDesc,
+              priceStars: session.data.productPrice || 10,
+              productType: 'file',
+            });
+
+            const successText =
+              `🎉 <b>تمت إضافة المنتج الرقمي بنجاح!</b>\n\n` +
+              `• <b>المنتج:</b> ${product.name}\n` +
+              `• <b>السعر:</b> <b>${product.price_stars} ⭐️ Stars</b>\n` +
+              `• <b>النوع:</b> 📁 ملف / محتوى رقمي\n` +
+              `• <b>الحالة:</b> 🟢 معروض الآن في متجر البوت للعملاء!`;
+
+            const kb = new InlineKeyboard()
+              .text('📦 إدارة المنتجات', 'admin:products')
+              .text('🔙 الرئيسية', 'admin:main_menu');
+
+            await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: kb });
+          } catch (err: any) {
+            await ctx.reply(`⚠️ تعذر إضافة المنتج: ${err?.message || 'خطأ غير معروف'}`);
+          }
+        }
+      }
+    } else if (data === 'admin:import_codes') {
+      await startRestockProductSelection(ctx, merchantId, botId);
+    } else if (data?.startsWith('admin:restock:')) {
+      const targetProdId = data.replace('admin:restock:', '');
+      await promptRestockCodes(ctx, targetProdId, merchantId, botId, botUsername);
+    }
+
+    // --- Customer Views & Actions ---
+    else if (data === 'cust:home') {
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
     } else if (data === 'cust:catalog') {
       await renderCustomerCatalog(ctx, merchantId, botId);
