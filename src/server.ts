@@ -9,6 +9,7 @@ import { deployWebhookRoutes } from './routes/deploy-webhook.js';
 import { telegramWebhookRoutes } from './routes/telegram-webhook.js';
 import { productRoutes } from './routes/product-routes.js';
 import { invoiceOrderRoutes } from './routes/invoice-order-routes.js';
+import { paymentRoutes } from './routes/payment-routes.js';
 
 dotenv.config();
 
@@ -49,7 +50,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 4. Register Invoices & Orders Routes (Phase 4)
   await app.register(invoiceOrderRoutes);
 
-  // 5. Health Check Endpoint
+  // 5. Register Payments & Refunds Routes (Phase 5)
+  await app.register(paymentRoutes);
+
+  // 6. Health Check Endpoint
   app.get('/health', async () => {
     return {
       status: 'ok',
@@ -59,7 +63,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
   });
 
-  // 6. Verify Bot Token without linking (Preview endpoint)
+  // 7. Verify Bot Token without linking (Preview endpoint)
   app.post('/api/v1/bots/preview', async (request, reply) => {
     try {
       const body = z.object({ token: z.string().min(10) }).parse(request.body);
@@ -79,7 +83,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // 7. Register & Link Bot Endpoint (Phase 1)
+  // 8. Register & Link Bot Endpoint (Phase 1)
   app.post('/api/v1/bots/verify-and-link', async (request, reply) => {
     try {
       const parsed = registerBotSchema.parse(request.body);

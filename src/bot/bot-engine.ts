@@ -3,6 +3,12 @@ import { getSupabase } from '../database/supabase.js';
 import { decryptToken } from '../security/encryption.js';
 import { renderAdminDashboard, handleSubscriptionView, handleProductsView } from './admin-handlers.js';
 import { renderCustomerHome, renderCustomerCatalog } from './customer-handlers.js';
+import {
+  sendTelegramStarsInvoice,
+  handlePreCheckoutQuery,
+  handleSuccessfulPayment,
+} from '../services/payment-service.js';
+import { createProductOrder } from '../services/order-service.js';
 import { TelegramBot } from '../types/index.js';
 
 interface CachedBot {
@@ -93,13 +99,33 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     }
   });
 
-  // 2. Callback Queries Dispatcher
+  // 2. Pre-checkout query handler (Telegram Stars verification)
+  bot.on('pre_checkout_query', async (ctx: Context) => {
+    if (ctx.preCheckoutQuery) {
+      await handlePreCheckoutQuery(bot.api, ctx.preCheckoutQuery);
+    }
+  });
+
+  // 3. Successful payment handler (Telegram Stars fulfillment)
+  bot.on(':successful_payment', async (ctx: Context) => {
+    const payment = ctx.message?.successful_payment;
+    const chatId = ctx.chat?.id;
+    const fromId = ctx.from?.id;
+
+    if (payment && chatId && fromId) {
+      await handleSuccessfulPayment(bot.api, chatId, fromId, payment as any);
+    }
+  });
+
+  // 4. Callback Queries Dispatcher
   bot.on('callback_query:data', async (ctx: Context) => {
     const data = ctx.callbackQuery?.data;
     const isAdmin = (ctx as any).isAdmin;
     const merchantId = (ctx as any).merchantId;
     const botUsername = (ctx as any).botUsername;
     const botId = (ctx as any).botId;
+    const chatId = ctx.chat?.id;
+    const fromId = ctx.from?.id;
 
     await ctx.answerCallbackQuery().catch(() => {});
 
@@ -118,6 +144,48 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
     } else if (data === 'cust:catalog') {
       await renderCustomerCatalog(ctx, merchantId, botId);
+    } else if (data?.startsWith('buy:prod:') && chatId && fromId) {
+      // Customer initiating product purchase via Telegram Stars
+      const productId = data.replace('buy:prod:', '');
+      try {
+        // Upsert customer record to get UUID
+        const { data: customer } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('merchant_id', merchantId)
+          .eq('telegram_user_id', fromId)
+          .single();
+
+        if (!customer) {
+          await ctx.reply('يرجى إعادة إرسال /start لتحديث بيانات حسابك.');
+          return;
+        }
+
+        const { order, invoice } = await createProductOrder({
+          merchantId,
+          botId,
+          customerId: customer.id,
+          productId,
+        });
+
+        await sendTelegramStarsInvoice(bot.api, chatId, invoice, {
+          orderId: order.id,
+          productId,
+        });
+      } catch (err: any) {
+        if (err?.message?.includes('MERCHANT_QUOTA_EXHAUSTED')) {
+          await ctx.reply('⚠️ نعتذر منك، عمليات الشراء والفوترة متوقفة مؤقتاً في المتجر حالياً. يرجى التواصل مع صاحب المتجر.');
+        } else {
+          await ctx.reply(`⚠️ تعذر بدء الفاتورة: ${err?.message || 'خطأ غير معروف'}`);
+        }
+      }
+    } else if (data?.startsWith('pay:inv:') && chatId) {
+      // Customer paying existing invoice
+      const invoiceId = data.replace('pay:inv:', '');
+      const { data: invoice } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
+      if (invoice) {
+        await sendTelegramStarsInvoice(bot.api, chatId, invoice);
+      }
     }
   });
 

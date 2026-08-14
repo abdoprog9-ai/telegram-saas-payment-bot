@@ -152,6 +152,17 @@ export interface Payment {
   created_at: string;
 }
 
+export interface Refund {
+  id: string;
+  payment_id: string;
+  merchant_id: string;
+  amount: number;
+  reason?: string | null;
+  telegram_refund_id?: string | null;
+  status: string;
+  created_at: string;
+}
+
 export interface WebhookEvent {
   id: string;
   bot_id: string;
