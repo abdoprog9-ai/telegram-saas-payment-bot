@@ -15,7 +15,11 @@ async function setupPlatformBotWebhook(appBaseUrl?: string, botToken?: string, s
   }
 
   try {
-    const webhookUrl = `${appBaseUrl}/api/v1/telegram/platform-webhook`;
+    const formattedBaseUrl = appBaseUrl.startsWith('http://') || appBaseUrl.startsWith('https://')
+      ? appBaseUrl
+      : `https://${appBaseUrl}`;
+
+    const webhookUrl = `${formattedBaseUrl}/api/v1/telegram/platform-webhook`;
     const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

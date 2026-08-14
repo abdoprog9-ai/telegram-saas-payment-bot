@@ -145,10 +145,8 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     } else if (data === 'cust:catalog') {
       await renderCustomerCatalog(ctx, merchantId, botId);
     } else if (data?.startsWith('buy:prod:') && chatId && fromId) {
-      // Customer initiating product purchase via Telegram Stars
       const productId = data.replace('buy:prod:', '');
       try {
-        // Upsert customer record to get UUID
         const { data: customer } = await supabase
           .from('customers')
           .select('id')
@@ -180,7 +178,6 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
         }
       }
     } else if (data?.startsWith('pay:inv:') && chatId) {
-      // Customer paying existing invoice
       const invoiceId = data.replace('pay:inv:', '');
       const { data: invoice } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
       if (invoice) {
@@ -188,6 +185,9 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       }
     }
   });
+
+  // Initialize bot info for GrammY webhook handling
+  await bot.init();
 
   const entry: CachedBot = {
     botRecord,

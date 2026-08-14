@@ -2,19 +2,40 @@ import { Bot, Context, InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 
 let platformBotInstance: Bot | null = null;
+let isInitializing = false;
 
 /**
  * Initializes or retrieves the Platform Main Bot instance
  */
-export function getPlatformBot(): Bot | null {
+export async function getPlatformBot(): Promise<Bot | null> {
   const token = process.env.PLATFORM_BOT_TOKEN;
-  if (!token || token.includes('placeholder')) {
+  if (!token || token.includes('placeholder') || token.length < 10) {
     return null;
   }
 
-  if (!platformBotInstance) {
-    platformBotInstance = new Bot(token);
-    setupPlatformBotHandlers(platformBotInstance);
+  if (platformBotInstance) {
+    return platformBotInstance;
+  }
+
+  if (isInitializing) {
+    // Wait until initialization completes
+    while (isInitializing) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return platformBotInstance;
+  }
+
+  isInitializing = true;
+  try {
+    const bot = new Bot(token);
+    setupPlatformBotHandlers(bot);
+    await bot.init(); // Initialize bot info for webhook command routing
+    platformBotInstance = bot;
+  } catch (err: any) {
+    console.error('❌ Failed to initialize Platform Bot:', err?.message);
+    return null;
+  } finally {
+    isInitializing = false;
   }
 
   return platformBotInstance;

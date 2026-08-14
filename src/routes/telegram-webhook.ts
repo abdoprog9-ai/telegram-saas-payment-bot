@@ -35,7 +35,7 @@ export async function telegramWebhookRoutes(app: FastifyInstance) {
       return { ok: false, error: 'Unauthorized platform secret' };
     }
 
-    const platformBot = getPlatformBot();
+    const platformBot = await getPlatformBot();
     if (!platformBot) {
       return { ok: false, message: 'Platform bot not configured' };
     }

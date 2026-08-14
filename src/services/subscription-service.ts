@@ -65,7 +65,7 @@ export async function sendLowBalanceAlert(merchantId: string, available: number)
   const telegramUserId = (merchant as any)?.users?.telegram_user_id;
   if (!telegramUserId) return false;
 
-  const platformBot = getPlatformBot();
+  const platformBot = await getPlatformBot();
   if (platformBot) {
     const text =
       `⚠️ <b>تنبيه انخفاض الرصيد:</b>\n\n` +
