@@ -12,11 +12,11 @@ git reset --hard origin/main
 
 # 2. Install dependencies
 echo "📦 Installing dependencies..."
-npm install --omit=dev --no-audit
+npm install --no-audit
 
 # 3. Compile TypeScript
 echo "🔨 Compiling TypeScript..."
-npm run build
+npx tsc
 
 # 4. Restart or Reload PM2 service
 echo "🔄 Reloading PM2 service..."
@@ -28,7 +28,7 @@ if command -v pm2 &> /dev/null; then
     fi
     pm2 save
 else
-    echo "⚠️ PM2 not found globally, please install pm2 (npm i -g pm2)"
+    echo "⚠️ PM2 not found globally"
 fi
 
 echo "=========================================="
