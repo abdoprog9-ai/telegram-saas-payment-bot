@@ -102,7 +102,7 @@ export async function registerBot(input: RegisterBotInput): Promise<SanitizedBot
   const botInfo = await verifyTelegramToken(rawToken);
 
   // 2. Prevent duplicate bot registration across multiple accounts
-  const { data: existingBot, error: checkError } = await supabase
+  const { data: existingBot } = await supabase
     .from('telegram_bots')
     .select('id, merchant_id')
     .eq('telegram_bot_id', botInfo.id)
@@ -110,9 +110,9 @@ export async function registerBot(input: RegisterBotInput): Promise<SanitizedBot
 
   if (existingBot) {
     if (existingBot.merchant_id === merchantId) {
-      throw new Error('This bot is already linked to your merchant account.');
+      throw new Error('هذا البوت مربوط مسبقاً بحسابك التجاري.');
     } else {
-      throw new Error('This bot is already linked to another merchant account. Transfer ownership first.');
+      throw new Error('هذا البوت مربوط بحساب تاجر آخر بالفعل.');
     }
   }
 
@@ -138,14 +138,18 @@ export async function registerBot(input: RegisterBotInput): Promise<SanitizedBot
     .single();
 
   if (insertError || !newBot) {
-    throw new Error(`Database error saving bot: ${insertError?.message || 'Unknown database error'}`);
+    throw new Error(`خطأ في قاعدة البيانات أثناء حفظ البوت: ${insertError?.message || 'Unknown database error'}`);
   }
 
   // 5. If Base URL is provided, set Webhook and activate bot
   let finalStatus: BotStatus = 'connected';
   if (appBaseUrl) {
     try {
-      const webhookUrl = `${appBaseUrl}/api/v1/telegram/webhook/${newBot.id}`;
+      const formattedBaseUrl = appBaseUrl.startsWith('http://') || appBaseUrl.startsWith('https://')
+        ? appBaseUrl
+        : `https://${appBaseUrl}`;
+
+      const webhookUrl = `${formattedBaseUrl}/api/v1/telegram/webhook/${newBot.id}`;
       await configureTelegramWebhook(rawToken, webhookUrl, webhookSecret);
       
       await supabase
@@ -173,26 +177,4 @@ export async function registerBot(input: RegisterBotInput): Promise<SanitizedBot
     status: finalStatus,
     createdAt: newBot.created_at,
   };
-}
-
-/**
- * Retrieves and decrypts the bot token for internal runtime use.
- */
-export async function getDecryptedBotToken(botId: string): Promise<string> {
-  const supabase = getSupabase();
-  const { data: bot, error } = await supabase
-    .from('telegram_bots')
-    .select('encrypted_token, token_iv, token_auth_tag')
-    .eq('id', botId)
-    .single();
-
-  if (error || !bot) {
-    throw new Error(`Bot record not found for id: ${botId}`);
-  }
-
-  return decryptToken({
-    encryptedText: bot.encrypted_token,
-    iv: bot.token_iv,
-    authTag: bot.token_auth_tag,
-  });
 }
