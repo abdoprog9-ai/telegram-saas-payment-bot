@@ -8,6 +8,7 @@ export interface AdminSession {
     | 'invoice_title'
     | 'invoice_desc'
     | 'invoice_amount'
+    | 'invoice_target_customer'
     | 'prod_name'
     | 'prod_desc'
     | 'prod_price'
@@ -21,6 +22,7 @@ export interface AdminSession {
     invoiceTitle?: string;
     invoiceDesc?: string;
     invoiceAmount?: number;
+    invoiceTargetCustomer?: string;
     productName?: string;
     productDesc?: string;
     productPrice?: number;
@@ -132,7 +134,7 @@ export async function handleInvoicesView(ctx: any, merchantId: string, botId: st
   const keyboard = new InlineKeyboard();
 
   if (!invoices || invoices.length === 0) {
-    text += `<i>لا توجد فواتير منشأة حالياً. يمكنك إنشاء فاتورة جديدة فورياً وإرسالها لعميلك لسدادها بالـ Stars!</i>\n\n`;
+    text += `<i>لا توجد فواتير منشأة حالياً. يمكنك إنشاء فاتورة جديدة فورياً ومشاركتها مع عميلك برابط مباشر لسدادها بالـ Stars!</i>\n\n`;
   } else {
     for (const inv of invoices) {
       const statusIcon = inv.status === 'paid' ? '🟢 مدفوعة' : inv.status === 'pending' ? '🟡 معلقة' : '🔴 ملغاة';
@@ -326,7 +328,7 @@ export async function handleAdminWizardTextInput(ctx: any, session: AdminSession
   const fromId = ctx.from?.id;
   if (!text || !fromId) return false;
 
-  const { merchantId, botId } = session.data;
+  const { merchantId, botId, botUsername } = session.data;
 
   // ----------------------------------------------------
   // 1. INVOICE WIZARD
@@ -384,6 +386,8 @@ export async function handleAdminWizardTextInput(ctx: any, session: AdminSession
         currency: 'XTR',
       });
 
+      const directPayLink = `https://t.me/${botUsername}?start=inv_${invoice.id}`;
+
       const successText =
         `🎉 <b>تم إنشاء الفاتورة بنجاح!</b>\n\n` +
         `• <b>رقم الفاتورة:</b> <code>${invoice.invoice_number}</code>\n` +
@@ -391,11 +395,14 @@ export async function handleAdminWizardTextInput(ctx: any, session: AdminSession
         (invoice.description ? `• <b>الوصف:</b> ${invoice.description}\n` : '') +
         `• <b>المبلغ:</b> <b>${invoice.total_amount} ⭐️ Stars</b>\n` +
         `• <b>الحالة:</b> 🟡 بانتظار السداد\n\n` +
-        `📲 <b>كيف يدفعها العميل؟</b>\n` +
-        `قم بإعادة توجيه (Forward) هذه الرسالة لعميلك، أو أرسل له رقم الفاتورة <code>${invoice.invoice_number}</code> ليبحث عنها في البوت ويدفعها فورياً بنجوم تيليجرام!`;
+        `🔗 <b>رابط السداد المباشر للعميل:</b>\n` +
+        `<code>${directPayLink}</code>\n\n` +
+        `💡 <i>بمجرد أن يضغط العميل على هذا الرابط في تيليجرام، سيفتح له البوت مباشرة ويطلب منه الدفع بالنجوم في ثانية واحدة!</i>`;
 
       const kb = new InlineKeyboard()
-        .text('⭐️ دفع هذه الفاتورة بالنجوم', `pay:inv:${invoice.id}`)
+        .url('🔗 فتح رابط الفاتورة', directPayLink)
+        .row()
+        .text('⭐️ تجربة سداد الفاتورة بنفسك', `pay:inv:${invoice.id}`)
         .row()
         .text('📄 قائمة الفواتير', 'admin:invoices')
         .text('🔙 الرئيسية', 'admin:main_menu');

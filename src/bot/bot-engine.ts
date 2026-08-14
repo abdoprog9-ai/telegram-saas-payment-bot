@@ -101,17 +101,86 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     return next();
   });
 
-  // 1. Start & Cancel Command Handlers
-  bot.command(['start', 'admin'], async (ctx: Context) => {
+  // 1. Start Command Handler (Supports Direct Deep Links, e.g. /start inv_<id>)
+  bot.command('start', async (ctx: Context) => {
+    const matchText = typeof ctx.match === 'string' ? ctx.match : (ctx.match?.[0] || '');
+    const fromId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
     const isAdmin = (ctx as any).isAdmin;
     const merchantId = (ctx as any).merchantId;
     const botUsername = (ctx as any).botUsername;
     const botId = (ctx as any).botId;
 
+    // --- Check if user clicked a direct invoice link: /start inv_<invoiceId> ---
+    if (matchText.startsWith('inv_') && chatId && fromId) {
+      const invoiceId = matchText.replace('inv_', '').trim();
+      const supabase = getSupabase();
+
+      // Upsert Customer
+      await supabase.from('customers').upsert({
+        merchant_id: merchantId,
+        telegram_user_id: fromId,
+        username: ctx.from?.username,
+        first_name: ctx.from?.first_name,
+        last_name: ctx.from?.last_name,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'merchant_id,telegram_user_id' });
+
+      // Fetch target invoice
+      const { data: invoice } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('id', invoiceId)
+        .eq('merchant_id', merchantId)
+        .single();
+
+      if (!invoice || invoice.deleted_at) {
+        await ctx.reply('⚠️ <b>عذراً، هذه الفاتورة غير موجودة أو تم إلغاؤها.</b>', { parse_mode: 'HTML' });
+        return;
+      }
+
+      if (invoice.status === 'paid') {
+        await ctx.reply(`✅ <b>هذه الفاتورة (<code>${invoice.invoice_number}</code>) مدفوعة مسبقاً بنجاح.</b>`, { parse_mode: 'HTML' });
+        return;
+      }
+
+      // Send Invoice Presentation Card
+      const cardText =
+        `📄 <b>فاتورة مستحقة الدفع:</b>\n\n` +
+        `• <b>رقم الفاتورة:</b> <code>${invoice.invoice_number}</code>\n` +
+        `• <b>البيان / الخدمة:</b> ${invoice.title}\n` +
+        (invoice.description ? `• <b>التفاصيل:</b> ${invoice.description}\n` : '') +
+        `• <b>المبلغ المطلوب:</b> <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+        `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
+
+      await ctx.reply(cardText, { parse_mode: 'HTML' });
+
+      // Trigger Telegram Stars Checkout Sheet
+      try {
+        await sendTelegramStarsInvoice(bot.api, chatId, invoice);
+      } catch (err: any) {
+        await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+      }
+      return;
+    }
+
+    // --- Standard Start Routing ---
     if (isAdmin) {
       await renderAdminDashboard(ctx, merchantId, botUsername);
     } else {
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
+    }
+  });
+
+  bot.command('admin', async (ctx: Context) => {
+    const isAdmin = (ctx as any).isAdmin;
+    const merchantId = (ctx as any).merchantId;
+    const botUsername = (ctx as any).botUsername;
+
+    if (isAdmin) {
+      await renderAdminDashboard(ctx, merchantId, botUsername);
+    } else {
+      await ctx.reply('⚠️ عذراً، لا تملك صلاحية الوصول إلى لوحة تحكم التاجر.');
     }
   });
 
@@ -331,7 +400,11 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       const invoiceId = data.replace('pay:inv:', '');
       const { data: invoice } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
       if (invoice) {
-        await sendTelegramStarsInvoice(bot.api, chatId, invoice);
+        try {
+          await sendTelegramStarsInvoice(bot.api, chatId, invoice);
+        } catch (err: any) {
+          await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+        }
       }
     }
   });
