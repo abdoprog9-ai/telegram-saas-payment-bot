@@ -1,0 +1,198 @@
+import { getSupabase } from '../database/supabase.js';
+import { encryptToken, decryptToken, generateWebhookSecret, maskToken } from '../security/encryption.js';
+import { TelegramBot, BotStatus } from '../types/index.js';
+
+export interface TelegramMeResponse {
+  ok: boolean;
+  result?: {
+    id: number;
+    is_bot: boolean;
+    first_name: string;
+    username: string;
+    can_join_groups?: boolean;
+    can_read_all_group_messages?: boolean;
+    supports_inline_queries?: boolean;
+  };
+  description?: string;
+  error_code?: number;
+}
+
+export interface RegisterBotInput {
+  merchantId: string;
+  rawToken: string;
+  appBaseUrl?: string;
+}
+
+export interface SanitizedBotResponse {
+  id: string;
+  merchantId: string;
+  telegramBotId: number;
+  botUsername: string;
+  botFirstName?: string | null;
+  maskedToken: string;
+  status: BotStatus;
+  createdAt: string;
+}
+
+/**
+ * Validates a Telegram Bot Token by invoking Telegram's getMe API.
+ */
+export async function verifyTelegramToken(rawToken: string): Promise<{
+  id: number;
+  username: string;
+  firstName: string;
+}> {
+  if (!rawToken || typeof rawToken !== 'string' || !rawToken.includes(':')) {
+    throw new Error('Invalid Telegram bot token format. It must follow 123456:ABC-DEF pattern.');
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${rawToken}/getMe`);
+  const data = (await response.json()) as TelegramMeResponse;
+
+  if (!data.ok || !data.result) {
+    throw new Error(`Telegram API validation failed: ${data.description || 'Unknown error'}`);
+  }
+
+  if (!data.result.is_bot) {
+    throw new Error('The provided token does not belong to a Telegram Bot.');
+  }
+
+  return {
+    id: data.result.id,
+    username: data.result.username,
+    firstName: data.result.first_name,
+  };
+}
+
+/**
+ * Configures the Telegram webhook with secret token verification.
+ */
+export async function configureTelegramWebhook(
+  rawToken: string,
+  webhookUrl: string,
+  secretToken: string
+): Promise<boolean> {
+  const response = await fetch(`https://api.telegram.org/bot${rawToken}/setWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: webhookUrl,
+      secret_token: secretToken,
+      allowed_updates: ['message', 'callback_query', 'pre_checkout_query', 'shipping_query'],
+      drop_pending_updates: false,
+    }),
+  });
+
+  const data = (await response.json()) as { ok: boolean; description?: string };
+  if (!data.ok) {
+    throw new Error(`Failed to set Telegram webhook: ${data.description || 'Unknown error'}`);
+  }
+
+  return true;
+}
+
+/**
+ * Verifies, encrypts, and registers a new Merchant Telegram Bot.
+ */
+export async function registerBot(input: RegisterBotInput): Promise<SanitizedBotResponse> {
+  const { merchantId, rawToken, appBaseUrl } = input;
+  const supabase = getSupabase();
+
+  // 1. Verify token directly with Telegram
+  const botInfo = await verifyTelegramToken(rawToken);
+
+  // 2. Prevent duplicate bot registration across multiple accounts
+  const { data: existingBot, error: checkError } = await supabase
+    .from('telegram_bots')
+    .select('id, merchant_id')
+    .eq('telegram_bot_id', botInfo.id)
+    .single();
+
+  if (existingBot) {
+    if (existingBot.merchant_id === merchantId) {
+      throw new Error('This bot is already linked to your merchant account.');
+    } else {
+      throw new Error('This bot is already linked to another merchant account. Transfer ownership first.');
+    }
+  }
+
+  // 3. Encrypt Bot Token using AES-256-GCM
+  const encrypted = encryptToken(rawToken);
+  const webhookSecret = generateWebhookSecret();
+
+  // 4. Save Bot record into database
+  const { data: newBot, error: insertError } = await supabase
+    .from('telegram_bots')
+    .insert({
+      merchant_id: merchantId,
+      telegram_bot_id: botInfo.id,
+      bot_username: botInfo.username,
+      bot_first_name: botInfo.firstName,
+      encrypted_token: encrypted.encryptedText,
+      token_iv: encrypted.iv,
+      token_auth_tag: encrypted.authTag,
+      webhook_secret: webhookSecret,
+      status: 'connected',
+    })
+    .select()
+    .single();
+
+  if (insertError || !newBot) {
+    throw new Error(`Database error saving bot: ${insertError?.message || 'Unknown database error'}`);
+  }
+
+  // 5. If Base URL is provided, set Webhook and activate bot
+  let finalStatus: BotStatus = 'connected';
+  if (appBaseUrl) {
+    try {
+      const webhookUrl = `${appBaseUrl}/api/v1/telegram/webhook/${newBot.id}`;
+      await configureTelegramWebhook(rawToken, webhookUrl, webhookSecret);
+      
+      await supabase
+        .from('telegram_bots')
+        .update({ status: 'active' })
+        .eq('id', newBot.id);
+
+      finalStatus = 'active';
+    } catch (err: any) {
+      await supabase
+        .from('telegram_bots')
+        .update({ status: 'webhook_error', last_error_message: err?.message })
+        .eq('id', newBot.id);
+      finalStatus = 'webhook_error';
+    }
+  }
+
+  return {
+    id: newBot.id,
+    merchantId: newBot.merchant_id,
+    telegramBotId: newBot.telegram_bot_id,
+    botUsername: newBot.bot_username,
+    botFirstName: newBot.bot_first_name,
+    maskedToken: maskToken(rawToken),
+    status: finalStatus,
+    createdAt: newBot.created_at,
+  };
+}
+
+/**
+ * Retrieves and decrypts the bot token for internal runtime use.
+ */
+export async function getDecryptedBotToken(botId: string): Promise<string> {
+  const supabase = getSupabase();
+  const { data: bot, error } = await supabase
+    .from('telegram_bots')
+    .select('encrypted_token, token_iv, token_auth_tag')
+    .eq('id', botId)
+    .single();
+
+  if (error || !bot) {
+    throw new Error(`Bot record not found for id: ${botId}`);
+  }
+
+  return decryptToken({
+    encryptedText: bot.encrypted_token,
+    iv: bot.token_iv,
+    authTag: bot.token_auth_tag,
+  });
+}
