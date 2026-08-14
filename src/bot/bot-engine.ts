@@ -1,7 +1,14 @@
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 import { decryptToken } from '../security/encryption.js';
-import { renderAdminDashboard, handleSubscriptionView, handleProductsView } from './admin-handlers.js';
+import {
+  renderAdminDashboard,
+  handleSubscriptionView,
+  handleProductsView,
+  handleInvoicesView,
+  handleOrdersView,
+  handleSettingsView,
+} from './admin-handlers.js';
 import { renderCustomerHome, renderCustomerCatalog } from './customer-handlers.js';
 import {
   sendTelegramStarsInvoice,
@@ -134,12 +141,29 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       return;
     }
 
-    if (data === 'admin:main_menu' || data === 'admin:refresh') {
+    if (data === 'admin:main_menu') {
       await renderAdminDashboard(ctx, merchantId, botUsername);
+    } else if (data === 'admin:refresh') {
+      await renderAdminDashboard(ctx, merchantId, botUsername, true);
     } else if (data === 'admin:subscription') {
       await handleSubscriptionView(ctx, merchantId);
     } else if (data === 'admin:products') {
       await handleProductsView(ctx, merchantId, botId);
+    } else if (data === 'admin:invoices') {
+      await handleInvoicesView(ctx, merchantId, botId);
+    } else if (data === 'admin:orders') {
+      await handleOrdersView(ctx, merchantId, botId);
+    } else if (data === 'admin:settings') {
+      await handleSettingsView(ctx, botUsername, botId);
+    } else if (data === 'admin:add_product' || data === 'admin:import_codes') {
+      const infoText =
+        `💡 <b>إدارة الكتالوج والمخزون:</b>\n\n` +
+        `يمكنك إضافة المنتجات واستيراد الأكواد الرقمية عبر الـ API:\n` +
+        `• إضافة منتج: <code>POST /api/v1/products</code>\n` +
+        `• استيراد أكواد: <code>POST /api/v1/products/:id/codes/import</code>\n\n` +
+        `🔒 جميع العمليات تتم بعزل كامل لكل متجر.`;
+      const kb = new InlineKeyboard().text('🔙 العودة للمنتجات', 'admin:products');
+      await ctx.editMessageText(infoText, { parse_mode: 'HTML', reply_markup: kb }).catch(() => {});
     } else if (data === 'cust:home') {
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
     } else if (data === 'cust:catalog') {
