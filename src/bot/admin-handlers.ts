@@ -1,14 +1,13 @@
 import { InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 import { createInvoice } from '../services/invoice-service.js';
-import { createProduct, importDigitalCodes } from '../services/product-service.js';
+import { createProduct, importDigitalCodes, softDeleteProduct } from '../services/product-service.js';
 
 export interface AdminSession {
   step:
     | 'invoice_title'
     | 'invoice_desc'
     | 'invoice_amount'
-    | 'invoice_target_customer'
     | 'prod_name'
     | 'prod_desc'
     | 'prod_price'
@@ -22,7 +21,6 @@ export interface AdminSession {
     invoiceTitle?: string;
     invoiceDesc?: string;
     invoiceAmount?: number;
-    invoiceTargetCustomer?: string;
     productName?: string;
     productDesc?: string;
     productPrice?: number;
@@ -114,7 +112,7 @@ export async function renderAdminDashboard(ctx: any, merchantId: string, botUser
 }
 
 /**
- * Handles 'admin:invoices' view - lists invoices with "Create Invoice" button
+ * Handles 'admin:invoices' view - lists invoices with interactive detail buttons
  */
 export async function handleInvoicesView(ctx: any, merchantId: string, botId: string) {
   const supabase = getSupabase();
@@ -128,7 +126,7 @@ export async function handleInvoicesView(ctx: any, merchantId: string, botId: st
     .eq('bot_id', botId)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
-    .limit(8);
+    .limit(10);
 
   let text = `📄 <b>إدارة وسجل الفواتير:</b>\n\n`;
   const keyboard = new InlineKeyboard();
@@ -136,11 +134,10 @@ export async function handleInvoicesView(ctx: any, merchantId: string, botId: st
   if (!invoices || invoices.length === 0) {
     text += `<i>لا توجد فواتير منشأة حالياً. يمكنك إنشاء فاتورة جديدة فورياً ومشاركتها مع عميلك برابط مباشر لسدادها بالـ Stars!</i>\n\n`;
   } else {
+    text += `اضغط على أي فاتورة لعرض تفاصيلها، رابط سدادها، أو إدارتها:\n\n`;
     for (const inv of invoices) {
-      const statusIcon = inv.status === 'paid' ? '🟢 مدفوعة' : inv.status === 'pending' ? '🟡 معلقة' : '🔴 ملغاة';
-      text += `• <b>${inv.invoice_number}</b> - ${inv.title}\n`;
-      text += `  المبلغ: <b>${inv.total_amount} ⭐️ Stars</b> | الحالة: ${statusIcon}\n`;
-      text += `  التاريخ: <code>${new Date(inv.created_at).toLocaleDateString('ar-EG')}</code>\n\n`;
+      const statusIcon = inv.status === 'paid' ? '🟢' : inv.status === 'pending' ? '🟡' : '🔴';
+      keyboard.text(`${statusIcon} ${inv.invoice_number} | ${inv.title} (${inv.total_amount}⭐️)`, `admin:view_inv:${inv.id}`).row();
     }
   }
 
@@ -155,6 +152,88 @@ export async function handleInvoicesView(ctx: any, merchantId: string, botId: st
   } else {
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
+}
+
+/**
+ * Renders full details for a specific invoice with sharing link and action buttons
+ */
+export async function renderInvoiceDetail(ctx: any, invoiceId: string, merchantId: string, botUsername: string) {
+  const supabase = getSupabase();
+  const { data: invoice } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('id', invoiceId)
+    .eq('merchant_id', merchantId)
+    .single();
+
+  if (!invoice || invoice.deleted_at) {
+    const text = `⚠️ <b>عذراً، هذه الفاتورة غير موجودة أو تم حذفها مسبقاً.</b>`;
+    const kb = new InlineKeyboard().text('🔙 قائمة الفواتير', 'admin:invoices');
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+    }
+    return;
+  }
+
+  const directPayLink = `https://t.me/${botUsername}?start=inv_${invoice.id}`;
+  const statusLabel = invoice.status === 'paid' ? '🟢 مسددة بنجاح' : invoice.status === 'pending' ? '🟡 بانتظار السداد' : '🔴 ملغاة';
+  const createdDate = new Date(invoice.created_at).toLocaleString('ar-EG');
+  const paidDate = invoice.paid_at ? new Date(invoice.paid_at).toLocaleString('ar-EG') : null;
+
+  const text =
+    `📄 <b>تفاصيل الفاتورة | ${invoice.invoice_number}</b>\n\n` +
+    `• <b>البيان / العنوان:</b> ${invoice.title}\n` +
+    (invoice.description ? `• <b>الوصف:</b> ${invoice.description}\n` : '') +
+    `• <b>المبلغ المطلوب:</b> <b>${invoice.total_amount} ⭐️ Stars</b>\n` +
+    `• <b>الحالة:</b> ${statusLabel}\n` +
+    `• <b>تاريخ الإنشاء:</b> <code>${createdDate}</code>\n` +
+    (paidDate ? `• <b>تاريخ السداد:</b> <code>${paidDate}</code>\n` : '') +
+    `\n🔗 <b>رابط السداد المباشر للعميل:</b>\n<code>${directPayLink}</code>\n\n` +
+    `💡 <i>يمكنك نسخ الرابط ومشاركته مع العميل في أي وقت ليسدد الفاتورة فورياً!</i>`;
+
+  const keyboard = new InlineKeyboard()
+    .url('🔗 فتح رابط الفاتورة', directPayLink)
+    .row();
+
+  if (invoice.status === 'pending') {
+    keyboard
+      .text('⭐️ تجربة سداد الفاتورة', `pay:inv:${invoice.id}`)
+      .text('🗑️ إلغاء الفاتورة', `admin:del_inv:${invoice.id}`)
+      .row();
+  }
+
+  keyboard
+    .text('🔙 قائمة الفواتير', 'admin:invoices')
+    .text('🏠 الرئيسية', 'admin:main_menu');
+
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
+  } else {
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
+}
+
+/**
+ * Handles soft deleting / canceling an invoice
+ */
+export async function handleDeleteInvoice(ctx: any, invoiceId: string, merchantId: string, botId: string) {
+  const supabase = getSupabase();
+  await supabase
+    .from('invoices')
+    .update({
+      status: 'cancelled',
+      deleted_at: new Date().toISOString(),
+    })
+    .eq('id', invoiceId)
+    .eq('merchant_id', merchantId);
+
+  if (ctx.answerCallbackQuery) {
+    await ctx.answerCallbackQuery({ text: '🗑️ تم إلغاء وحذف الفاتورة بنجاح!' }).catch(() => {});
+  }
+
+  await handleInvoicesView(ctx, merchantId, botId);
 }
 
 /**
@@ -183,7 +262,7 @@ export async function startCreateInvoiceWizard(ctx: any, merchantId: string, bot
 }
 
 /**
- * Handles 'admin:products' view - lists products with "Add Product" & "Import Codes" buttons
+ * Handles 'admin:products' view - lists products with interactive buttons
  */
 export async function handleProductsView(ctx: any, merchantId: string, botId: string) {
   const supabase = getSupabase();
@@ -204,12 +283,10 @@ export async function handleProductsView(ctx: any, merchantId: string, botId: st
   if (!products || products.length === 0) {
     text += `<i>لا توجد منتجات مضافة في متجرك حالياً. اضغط على زر "إضافة منتج" أدناه لإضافة منتجك الرقمي وتعبئة مخزونه!</i>\n\n`;
   } else {
-    text += `لديك <b>${products.length}</b> منتج معروض:\n\n`;
+    text += `اضغط على أي منتج لعرض تفاصيله، تعبئة مخزونه، أو إدارته:\n\n`;
     for (const p of products) {
       const stockCount = p.digital_product_codes?.[0]?.count ?? 0;
-      text += `• <b>${p.name}</b>\n`;
-      text += `  السعر: <b>${p.price_stars} ⭐️ Stars</b> | المخزون: <code>${stockCount}</code> كود\n`;
-      text += `  النوع: <code>${p.product_type}</code>\n\n`;
+      keyboard.text(`📦 ${p.name} (${p.price_stars}⭐️) - مخزون: ${stockCount}`, `admin:view_prod:${p.id}`).row();
     }
   }
 
@@ -225,6 +302,73 @@ export async function handleProductsView(ctx: any, merchantId: string, botId: st
   } else {
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   }
+}
+
+/**
+ * Renders detail view for a specific product
+ */
+export async function renderProductDetail(ctx: any, productId: string, merchantId: string, botUsername: string) {
+  const supabase = getSupabase();
+  const { data: product } = await supabase
+    .from('products')
+    .select('*, digital_product_codes(count)')
+    .eq('id', productId)
+    .eq('merchant_id', merchantId)
+    .single();
+
+  if (!product || product.deleted_at) {
+    const text = `⚠️ <b>عذراً، هذا المنتج غير موجود أو تم حذفه مسبقاً.</b>`;
+    const kb = new InlineKeyboard().text('🔙 قائمة المنتجات', 'admin:products');
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+    }
+    return;
+  }
+
+  const stockCount = product.digital_product_codes?.[0]?.count ?? 0;
+  const createdDate = new Date(product.created_at).toLocaleString('ar-EG');
+
+  const text =
+    `📦 <b>تفاصيل المنتج | ${product.name}</b>\n\n` +
+    (product.description ? `• <b>الوصف:</b> ${product.description}\n` : '') +
+    `• <b>السعر:</b> <b>${product.price_stars} ⭐️ Stars</b>\n` +
+    `• <b>نوع المنتج:</b> <code>${product.product_type === 'code' ? 'أكواد رقمية' : 'ملف / محتوى'}</code>\n` +
+    `• <b>المخزون المتوفر:</b> <b>${stockCount}</b> كود نشط\n` +
+    `• <b>تاريخ الإضافة:</b> <code>${createdDate}</code>\n\n` +
+    `💡 <i>عند قيام العميل بالشراء، يقوم البوت بتسليم كود محجوز ذرياً وتلقائياً.</i>`;
+
+  const keyboard = new InlineKeyboard();
+
+  if (product.product_type === 'code') {
+    keyboard.text('📥 تعبئة مخزون أكواد لهذا المنتج', `admin:restock:${product.id}`).row();
+  }
+
+  keyboard
+    .text('🗑️ حذف المنتج', `admin:del_prod:${product.id}`)
+    .row()
+    .text('🔙 قائمة المنتجات', 'admin:products')
+    .text('🏠 الرئيسية', 'admin:main_menu');
+
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
+  } else {
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
+}
+
+/**
+ * Handles deleting a product
+ */
+export async function handleDeleteProduct(ctx: any, productId: string, merchantId: string, botId: string) {
+  await softDeleteProduct(productId, merchantId);
+
+  if (ctx.answerCallbackQuery) {
+    await ctx.answerCallbackQuery({ text: '🗑️ تم حذف المنتج بنجاح!' }).catch(() => {});
+  }
+
+  await handleProductsView(ctx, merchantId, botId);
 }
 
 /**

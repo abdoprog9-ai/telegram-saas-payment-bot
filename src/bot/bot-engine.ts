@@ -8,6 +8,10 @@ import {
   handleInvoicesView,
   handleOrdersView,
   handleSettingsView,
+  renderInvoiceDetail,
+  handleDeleteInvoice,
+  renderProductDetail,
+  handleDeleteProduct,
   startCreateInvoiceWizard,
   startAddProductWizard,
   startRestockProductSelection,
@@ -196,16 +200,65 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     }
   });
 
-  // 2. Text Message Handler (Dispatches to Admin Wizard if active)
+  // 2. Text Message Handler (Dispatches to Admin Wizard or Invoice Number Lookup)
   bot.on('message:text', async (ctx: Context, next) => {
     const fromId = ctx.from?.id;
+    const chatId = ctx.chat?.id;
+    const text = ctx.message?.text?.trim() || '';
     const isAdmin = (ctx as any).isAdmin;
+    const merchantId = (ctx as any).merchantId;
+    const botUsername = (ctx as any).botUsername;
 
+    // Check if user is in an active Admin wizard step
     if (isAdmin && fromId) {
       const session = getAdminSession(fromId);
       if (session) {
         const handled = await handleAdminWizardTextInput(ctx, session);
         if (handled) return;
+      }
+    }
+
+    // Check if text is an Invoice Number lookup (e.g. INV-B16AED)
+    const invoiceNumberPattern = /^INV-[A-Z0-9]{6}$/i;
+    if (invoiceNumberPattern.test(text) && merchantId) {
+      const supabase = getSupabase();
+      const { data: invoice } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('merchant_id', merchantId)
+        .ilike('invoice_number', text)
+        .is('deleted_at', null)
+        .single();
+
+      if (invoice) {
+        if (isAdmin) {
+          await renderInvoiceDetail(ctx, invoice.id, merchantId, botUsername);
+          return;
+        } else if (chatId) {
+          if (invoice.status === 'paid') {
+            await ctx.reply(`✅ <b>هذه الفاتورة (<code>${invoice.invoice_number}</code>) مدفوعة مسبقاً بنجاح.</b>`, { parse_mode: 'HTML' });
+            return;
+          }
+
+          const cardText =
+            `📄 <b>فاتورة مستحقة الدفع:</b>\n\n` +
+            `• <b>رقم الفاتورة:</b> <code>${invoice.invoice_number}</code>\n` +
+            `• <b>البيان / الخدمة:</b> ${invoice.title}\n` +
+            (invoice.description ? `• <b>التفاصيل:</b> ${invoice.description}\n` : '') +
+            `• <b>المبلغ المطلوب:</b> <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+            `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
+
+          await ctx.reply(cardText, { parse_mode: 'HTML' });
+          try {
+            await sendTelegramStarsInvoice(bot.api, chatId, invoice);
+          } catch (err: any) {
+            await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+          }
+          return;
+        }
+      } else {
+        await ctx.reply(`⚠️ لم يتم العثور على فاتورة برقم <code>${text}</code> في هذا المتجر.`, { parse_mode: 'HTML' });
+        return;
       }
     }
 
@@ -256,8 +309,20 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       await handleSubscriptionView(ctx, merchantId);
     } else if (data === 'admin:products') {
       await handleProductsView(ctx, merchantId, botId);
+    } else if (data?.startsWith('admin:view_prod:')) {
+      const prodId = data.replace('admin:view_prod:', '');
+      await renderProductDetail(ctx, prodId, merchantId, botUsername);
+    } else if (data?.startsWith('admin:del_prod:')) {
+      const prodId = data.replace('admin:del_prod:', '');
+      await handleDeleteProduct(ctx, prodId, merchantId, botId);
     } else if (data === 'admin:invoices') {
       await handleInvoicesView(ctx, merchantId, botId);
+    } else if (data?.startsWith('admin:view_inv:')) {
+      const invId = data.replace('admin:view_inv:', '');
+      await renderInvoiceDetail(ctx, invId, merchantId, botUsername);
+    } else if (data?.startsWith('admin:del_inv:')) {
+      const invId = data.replace('admin:del_inv:', '');
+      await handleDeleteInvoice(ctx, invId, merchantId, botId);
     } else if (data === 'admin:orders') {
       await handleOrdersView(ctx, merchantId, botId);
     } else if (data === 'admin:settings') {
