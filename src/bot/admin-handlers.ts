@@ -103,3 +103,43 @@ export async function handleSubscriptionView(ctx: any, merchantId: string) {
 
   await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
 }
+
+/**
+ * Handles 'admin:products' button click - lists products & stock
+ */
+export async function handleProductsView(ctx: any, merchantId: string, botId: string) {
+  const supabase = getSupabase();
+
+  const { data: products } = await supabase
+    .from('products')
+    .select('*, digital_product_codes(count)')
+    .eq('merchant_id', merchantId)
+    .eq('bot_id', botId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+
+  let text = `📦 <b>إدارة المنتجات الرقمية:</b>\n\n`;
+  const keyboard = new InlineKeyboard();
+
+  if (!products || products.length === 0) {
+    text += `<i>لا يوجد لديك منتجات مضافة حتى الآن.</i>\n\n`;
+  } else {
+    text += `لديك <b>${products.length}</b> منتج معروض:\n\n`;
+    for (const p of products) {
+      text += `• <b>${p.name}</b> (${p.price_stars} ⭐️)\n`;
+      text += `  النوع: <code>${p.product_type}</code>\n`;
+    }
+  }
+
+  keyboard
+    .text('➕ إضافة منتج جديد', 'admin:add_product')
+    .text('📥 استيراد أكواد', 'admin:import_codes')
+    .row()
+    .text('🔙 العودة للرئيسية', 'admin:main_menu');
+
+  if (ctx.callbackQuery) {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  } else {
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
+}

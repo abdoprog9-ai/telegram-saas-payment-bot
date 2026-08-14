@@ -7,6 +7,7 @@ import { registerBot, verifyTelegramToken } from './services/bot-service.js';
 import { maskToken } from './security/encryption.js';
 import { deployWebhookRoutes } from './routes/deploy-webhook.js';
 import { telegramWebhookRoutes } from './routes/telegram-webhook.js';
+import { productRoutes } from './routes/product-routes.js';
 
 dotenv.config();
 
@@ -41,7 +42,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 2. Register Unified Telegram Webhook Routes (Phase 2)
   await app.register(telegramWebhookRoutes);
 
-  // 3. Health Check Endpoint
+  // 3. Register Product & Digital Code Routes (Phase 3)
+  await app.register(productRoutes);
+
+  // 4. Health Check Endpoint
   app.get('/health', async () => {
     return {
       status: 'ok',
@@ -51,7 +55,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
   });
 
-  // 4. Verify Bot Token without linking (Preview endpoint)
+  // 5. Verify Bot Token without linking (Preview endpoint)
   app.post('/api/v1/bots/preview', async (request, reply) => {
     try {
       const body = z.object({ token: z.string().min(10) }).parse(request.body);
@@ -71,7 +75,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // 5. Register & Link Bot Endpoint (Phase 1)
+  // 6. Register & Link Bot Endpoint (Phase 1)
   app.post('/api/v1/bots/verify-and-link', async (request, reply) => {
     try {
       const parsed = registerBotSchema.parse(request.body);

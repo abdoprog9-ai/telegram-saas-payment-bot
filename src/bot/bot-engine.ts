@@ -1,7 +1,7 @@
 import { Bot, Context } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 import { decryptToken } from '../security/encryption.js';
-import { renderAdminDashboard, handleSubscriptionView } from './admin-handlers.js';
+import { renderAdminDashboard, handleSubscriptionView, handleProductsView } from './admin-handlers.js';
 import { renderCustomerHome, renderCustomerCatalog } from './customer-handlers.js';
 import { TelegramBot } from '../types/index.js';
 
@@ -112,6 +112,8 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       await renderAdminDashboard(ctx, merchantId, botUsername);
     } else if (data === 'admin:subscription') {
       await handleSubscriptionView(ctx, merchantId);
+    } else if (data === 'admin:products') {
+      await handleProductsView(ctx, merchantId, botId);
     } else if (data === 'cust:home') {
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
     } else if (data === 'cust:catalog') {
