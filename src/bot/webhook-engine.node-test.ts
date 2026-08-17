@@ -17,7 +17,7 @@ describe('Phase 2: Telegram Webhooks & Multi-Bot Routing Verification', () => {
     assert.ok(buttonTexts.some(t => t.includes('إنشاء فاتورة')), 'Must have Create Invoice button');
     assert.ok(buttonTexts.some(t => t.includes('الفواتير')), 'Must have Invoices button');
     assert.ok(buttonTexts.some(t => t.includes('اشتراكي')), 'Must have Subscription button');
-    assert.ok(buttonTexts.some(t => t.includes('الإعدادات')), 'Must have Settings button');
+    assert.ok(buttonTexts.some(t => t.includes('إعدادات')), 'Must have Settings button');
   });
 
   it('2. POST /api/v1/telegram/webhook/:botId should return 401 for requests with missing secret token', async () => {

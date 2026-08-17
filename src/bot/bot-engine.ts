@@ -6,10 +6,13 @@ import {
   handleSubscriptionView,
   handleInvoicesView,
   handleSettingsView,
+  renderExpirySelectionMenu,
+  handleAnalyticsView,
   renderInvoiceDetail,
   handleDeleteInvoice,
   startCreateInvoiceWizard,
   getAdminSession,
+  setAdminSession,
   clearAdminSession,
   handleAdminWizardTextInput,
 } from './admin-handlers.js';
@@ -19,6 +22,7 @@ import {
   handlePreCheckoutQuery,
   handleSuccessfulPayment,
 } from '../services/payment-service.js';
+import { updateMerchantSettings, getMerchantSettings } from '../services/settings-service.js';
 import { TelegramBot } from '../types/index.js';
 
 interface CachedBot {
@@ -95,7 +99,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     return next();
   });
 
-  // 1. Start Command Handler (Supports Direct Deep Links, e.g. /start inv_<id>)
+  // 1. Start Command Handler (Dual-Mode: Default Customer View with Deep Link Support)
   bot.command('start', async (ctx: Context) => {
     const matchText = typeof ctx.match === 'string' ? ctx.match : (ctx.match?.[0] || '');
     const fromId = ctx.from?.id;
@@ -104,6 +108,12 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     const merchantId = (ctx as any).merchantId;
     const botUsername = (ctx as any).botUsername;
     const botId = (ctx as any).botId;
+
+    // --- Direct Admin Shortcut ---
+    if (matchText === 'admin' && isAdmin) {
+      await renderAdminDashboard(ctx, merchantId, botUsername);
+      return;
+    }
 
     // --- Check if user clicked a direct invoice link: /start inv_<invoiceId> ---
     if (matchText.startsWith('inv_') && chatId && fromId) {
@@ -129,22 +139,22 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
         .single();
 
       if (!invoice || invoice.deleted_at) {
-        await ctx.reply('⚠️ <b>عذراً، هذه الفاتورة غير موجودة أو تم إلغاؤها.</b>', { parse_mode: 'HTML' });
+        await ctx.reply('عذراً، هذه الفاتورة غير موجودة أو تم إلغاؤها.');
         return;
       }
 
       if (invoice.status === 'paid') {
-        await ctx.reply(`✅ <b>هذه الفاتورة (<code>${invoice.invoice_number}</code>) مدفوعة مسبقاً بنجاح.</b>`, { parse_mode: 'HTML' });
+        await ctx.reply(`هذه الفاتورة (<code>${invoice.invoice_number}</code>) مدفوعة مسبقاً بنجاح.`, { parse_mode: 'HTML' });
         return;
       }
 
       // Send Invoice Presentation Card
       const cardText =
-        `📄 <b>فاتورة مستحقة الدفع:</b>\n\n` +
-        `• <b>رقم الفاتورة:</b> <code>${invoice.invoice_number}</code>\n` +
-        `• <b>البيان / الخدمة:</b> ${invoice.title}\n` +
-        (invoice.description ? `• <b>التفاصيل:</b> ${invoice.description}\n` : '') +
-        `• <b>المبلغ المطلوب:</b> <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+        `<b>فاتورة مستحقة الدفع:</b>\n\n` +
+        `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
+        `• البيان: <b>${invoice.title}</b>\n` +
+        (invoice.description ? `• التفاصيل: ${invoice.description}\n` : '') +
+        `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
         `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
 
       await ctx.reply(cardText, { parse_mode: 'HTML' });
@@ -153,17 +163,13 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       try {
         await sendTelegramStarsInvoice(bot.api, chatId, invoice);
       } catch (err: any) {
-        await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+        await ctx.reply(`تعذر إرسال نموذج الدفع: ${err?.message}`);
       }
       return;
     }
 
-    // --- Standard Start Routing ---
-    if (isAdmin) {
-      await renderAdminDashboard(ctx, merchantId, botUsername);
-    } else {
-      await renderCustomerHome(ctx, merchantId, botId, botUsername);
-    }
+    // Default: Customer Facing View (with Admin Switch button visible to all, protected for owner)
+    await renderCustomerHome(ctx, merchantId, botId, botUsername);
   });
 
   bot.command('admin', async (ctx: Context) => {
@@ -174,7 +180,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     if (isAdmin) {
       await renderAdminDashboard(ctx, merchantId, botUsername);
     } else {
-      await ctx.reply('⚠️ عذراً، لا تملك صلاحية الوصول إلى لوحة تحكم التاجر.');
+      await ctx.reply('عذراً، لا تملك صلاحية الوصول إلى لوحة تحكم التاجر.');
     }
   });
 
@@ -185,12 +191,12 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
 
     if (fromId) clearAdminSession(fromId);
     if ((ctx as any).isAdmin) {
-      await ctx.reply('❌ تم إلغاء العملية الحالية والعودة للرئيسية.');
+      await ctx.reply('تم إلغاء العملية الحالية والعودة للرئيسية.');
       await renderAdminDashboard(ctx, merchantId, botUsername);
     }
   });
 
-  // 2. Text Message Handler (Dispatches to Admin Invoicing Wizard or Invoice Number Lookup)
+  // 2. Text Message Handler (Dispatches to Admin Wizard or Invoice Number Lookup)
   bot.on('message:text', async (ctx: Context, next) => {
     const fromId = ctx.from?.id;
     const chatId = ctx.chat?.id;
@@ -226,28 +232,28 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
           return;
         } else if (chatId) {
           if (invoice.status === 'paid') {
-            await ctx.reply(`✅ <b>هذه الفاتورة (<code>${invoice.invoice_number}</code>) مدفوعة مسبقاً بنجاح.</b>`, { parse_mode: 'HTML' });
+            await ctx.reply(`هذه الفاتورة (<code>${invoice.invoice_number}</code>) مدفوعة مسبقاً بنجاح.`, { parse_mode: 'HTML' });
             return;
           }
 
           const cardText =
-            `📄 <b>فاتورة مستحقة الدفع:</b>\n\n` +
-            `• <b>رقم الفاتورة:</b> <code>${invoice.invoice_number}</code>\n` +
-            `• <b>البيان / الخدمة:</b> ${invoice.title}\n` +
-            (invoice.description ? `• <b>التفاصيل:</b> ${invoice.description}\n` : '') +
-            `• <b>المبلغ المطلوب:</b> <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+            `<b>فاتورة مستحقة الدفع:</b>\n\n` +
+            `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
+            `• البيان: <b>${invoice.title}</b>\n` +
+            (invoice.description ? `• التفاصيل: ${invoice.description}\n` : '') +
+            `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
             `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
 
           await ctx.reply(cardText, { parse_mode: 'HTML' });
           try {
             await sendTelegramStarsInvoice(bot.api, chatId, invoice);
           } catch (err: any) {
-            await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+            await ctx.reply(`تعذر إرسال نموذج الدفع: ${err?.message}`);
           }
           return;
         }
       } else {
-        await ctx.reply(`⚠️ لم يتم العثور على فاتورة برقم <code>${text}</code> في هذا المتجر.`, { parse_mode: 'HTML' });
+        await ctx.reply(`لم يتم العثور على فاتورة برقم <code>${text}</code> في هذا المتجر.`, { parse_mode: 'HTML' });
         return;
       }
     }
@@ -285,12 +291,13 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
 
     await ctx.answerCallbackQuery().catch(() => {});
 
+    // Permission Guard for all admin routes
     if (data?.startsWith('admin:') && !isAdmin) {
-      await ctx.reply('⚠️ عذراً، لا تملك صلاحية الوصول إلى لوحة تحكم التاجر.');
+      await ctx.answerCallbackQuery({ text: '⚠️ عذراً، هذا القسم مخصص لمالك البوت فقط.' }).catch(() => {});
       return;
     }
 
-    // --- Admin Views ---
+    // --- Admin Views & Actions ---
     if (data === 'admin:main_menu') {
       await renderAdminDashboard(ctx, merchantId, botUsername);
     } else if (data === 'admin:refresh') {
@@ -305,13 +312,63 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     } else if (data?.startsWith('admin:del_inv:')) {
       const invId = data.replace('admin:del_inv:', '');
       await handleDeleteInvoice(ctx, invId, merchantId, botId);
+    } else if (data === 'admin:create_invoice') {
+      await startCreateInvoiceWizard(ctx, merchantId, botId, botUsername);
+    } else if (data === 'admin:analytics') {
+      await handleAnalyticsView(ctx, merchantId);
     } else if (data === 'admin:settings') {
-      await handleSettingsView(ctx, botUsername, botId);
+      await handleSettingsView(ctx, merchantId, botUsername, botId);
     } else if (data === 'admin:cancel_wizard') {
       if (fromId) clearAdminSession(fromId);
       await renderAdminDashboard(ctx, merchantId, botUsername);
-    } else if (data === 'admin:create_invoice') {
-      await startCreateInvoiceWizard(ctx, merchantId, botId, botUsername);
+    }
+
+    // --- Settings Configuration Handlers ---
+    else if (data === 'admin:set:biz_name' && fromId) {
+      setAdminSession(fromId, {
+        step: 'set_biz_name',
+        data: { merchantId, botId, botUsername },
+      });
+      const prompt = `أرسل الآن <b>اسم النشاط أو المتجر الجديد</b> الذي ترغب في ظهوره لعملائك:`;
+      const kb = new InlineKeyboard().text('إلغاء', 'admin:settings');
+      await ctx.editMessageText(prompt, { parse_mode: 'HTML', reply_markup: kb });
+    } else if (data === 'admin:set:welcome_msg' && fromId) {
+      setAdminSession(fromId, {
+        step: 'set_welcome_msg',
+        data: { merchantId, botId, botUsername },
+      });
+      const prompt = `أرسل الآن <b>رسالة الترحيب المخصصة</b> التي ستظهر للعملاء عند فتح البوت:`;
+      const kb = new InlineKeyboard().text('إلغاء', 'admin:settings');
+      await ctx.editMessageText(prompt, { parse_mode: 'HTML', reply_markup: kb });
+    } else if (data === 'admin:set:thankyou_msg' && fromId) {
+      setAdminSession(fromId, {
+        step: 'set_thankyou_msg',
+        data: { merchantId, botId, botUsername },
+      });
+      const prompt = `أرسل الآن <b>رسالة ما بعد الدفع</b> (تظهر للعميل فور نجاح السداد مع تعليمات استلام الخدمة):`;
+      const kb = new InlineKeyboard().text('إلغاء', 'admin:settings');
+      await ctx.editMessageText(prompt, { parse_mode: 'HTML', reply_markup: kb });
+    } else if (data === 'admin:set:support_user' && fromId) {
+      setAdminSession(fromId, {
+        step: 'set_support_user',
+        data: { merchantId, botId, botUsername },
+      });
+      const prompt = `أرسل الآن <b>يوزر الدعم الفني</b> (مثال: <code>@SupportUsername</code>):`;
+      const kb = new InlineKeyboard().text('إلغاء', 'admin:settings');
+      await ctx.editMessageText(prompt, { parse_mode: 'HTML', reply_markup: kb });
+    } else if (data === 'admin:set:expiry_menu') {
+      await renderExpirySelectionMenu(ctx, merchantId);
+    } else if (data?.startsWith('admin:set_exp:')) {
+      const hours = parseInt(data.replace('admin:set_exp:', ''), 10) || 0;
+      await updateMerchantSettings(merchantId, { invoice_expiry_hours: hours });
+      await ctx.answerCallbackQuery({ text: 'تم تحديث مدة الصلاحية بنجاح' });
+      await handleSettingsView(ctx, merchantId, botUsername, botId);
+    } else if (data === 'admin:set:toggle_notify') {
+      const current = await getMerchantSettings(merchantId);
+      const newStatus = current.notify_on_payment === false ? true : false;
+      await updateMerchantSettings(merchantId, { notify_on_payment: newStatus });
+      await ctx.answerCallbackQuery({ text: newStatus ? 'تم تفعيل التنبيهات' : 'تم كتم التنبيهات' });
+      await handleSettingsView(ctx, merchantId, botUsername, botId);
     }
 
     // --- Customer Views & Actions ---
@@ -324,7 +381,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
         try {
           await sendTelegramStarsInvoice(bot.api, chatId, invoice);
         } catch (err: any) {
-          await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+          await ctx.reply(`تعذر إرسال نموذج الدفع: ${err?.message}`);
         }
       }
     }

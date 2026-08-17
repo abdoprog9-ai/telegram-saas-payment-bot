@@ -12,6 +12,7 @@ export interface User {
   telegram_user_id?: number | null;
   email?: string | null;
   role: UserRole;
+  is_superadmin?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +22,19 @@ export interface Merchant {
   user_id: string; // UUID v4
   business_name: string;
   status: MerchantStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MerchantSettings {
+  id: string;
+  merchant_id: string;
+  business_name?: string | null;
+  custom_welcome_msg?: string | null;
+  custom_thankyou_msg?: string | null;
+  support_username?: string | null;
+  invoice_expiry_hours?: number;
+  notify_on_payment?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -99,10 +113,12 @@ export interface Product {
   description?: string | null;
   price_stars: number;
   product_type: ProductType;
+  file_url?: string | null;
+  content_data?: string | null;
   is_active: boolean;
-  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface DigitalProductCode {
@@ -111,8 +127,8 @@ export interface DigitalProductCode {
   merchant_id: string;
   code_value: string;
   is_used: boolean;
-  assigned_order_id?: string | null;
-  assigned_at?: string | null;
+  used_at?: string | null;
+  order_id?: string | null;
   created_at: string;
 }
 
@@ -124,10 +140,9 @@ export interface Invoice {
   invoice_number: string;
   title: string;
   description?: string | null;
-  currency: string;
   total_amount: number;
+  currency: string;
   status: InvoiceStatus;
-  telegram_payment_charge_id?: string | null;
   expires_at?: string | null;
   paid_at?: string | null;
   deleted_at?: string | null;
@@ -140,11 +155,12 @@ export interface Order {
   merchant_id: string;
   bot_id: string;
   customer_id: string;
-  product_id?: string | null;
-  invoice_id?: string | null;
+  product_id: string;
+  invoice_id: string;
   amount: number;
+  currency: string;
   status: OrderStatus;
-  delivered_payload?: string | null;
+  delivered_code_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -159,7 +175,7 @@ export interface Payment {
   amount: number;
   currency: string;
   status: PaymentStatus;
-  raw_payload?: Record<string, unknown> | null;
+  raw_payload?: Record<string, any> | null;
   created_at: string;
 }
 
@@ -171,15 +187,5 @@ export interface Refund {
   reason?: string | null;
   telegram_refund_id?: string | null;
   status: string;
-  created_at: string;
-}
-
-export interface WebhookEvent {
-  id: string;
-  bot_id: string;
-  update_id: number;
-  event_type?: string | null;
-  is_processed: boolean;
-  payload?: Record<string, unknown> | null;
   created_at: string;
 }

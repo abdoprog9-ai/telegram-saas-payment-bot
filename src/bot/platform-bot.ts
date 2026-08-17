@@ -42,43 +42,195 @@ export async function getPlatformBot(): Promise<Bot | null> {
 }
 
 /**
- * Configures commands, interactive menus, and token receiver for the Platform Main Bot
+ * Configures commands, menus, SuperAdmin panel, and token receiver for the Platform Main Bot
  */
 function setupPlatformBotHandlers(bot: Bot) {
+  // Helper to check if a user is SuperAdmin
+  const checkIsSuperAdmin = async (telegramUserId: number): Promise<boolean> => {
+    const supabase = getSupabase();
+    const { data: user } = await supabase
+      .from('users')
+      .select('role, is_superadmin')
+      .eq('telegram_user_id', telegramUserId)
+      .maybeSingle();
+
+    if (user?.is_superadmin || user?.role === 'superadmin') {
+      return true;
+    }
+
+    // Also support SUPERADMIN_TELEGRAM_IDS env variable
+    const adminIds = process.env.SUPERADMIN_TELEGRAM_IDS?.split(',').map((id) => id.trim()) || [];
+    return adminIds.includes(String(telegramUserId));
+  };
+
   // 1. Start command
-  bot.command('start', async (ctx: Context) => {
+  bot.command(['start', 'admin'], async (ctx: Context) => {
     const from = ctx.from;
     if (!from) return;
 
     const supabase = getSupabase();
+    const isSuperAdmin = await checkIsSuperAdmin(from.id);
 
     // Upsert platform user record
     await supabase.from('users').upsert({
       telegram_user_id: from.id,
-      role: 'merchant',
+      role: isSuperAdmin ? 'superadmin' : 'merchant',
+      is_superadmin: isSuperAdmin,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'telegram_user_id' });
 
-    const text = 
-      `👋 <b>أهلاً بك في منصة Telegram SaaS Payments!</b>\n\n` +
-      `المنصة السحابية المتكاملة لإدارة مبيعاتك ومنتجاتك الرقمية وفواتيرك واستقبال مدفوعات <b>Telegram Stars</b> بكل سهولة وأمان.\n\n` +
-      `💡 <b>الخيارات المتاحة:</b>\n` +
+    let text = 
+      `<b>منصة Telegram SaaS Payments</b>\n\n` +
+      `المنصة السحابية المتكاملة لربط بوتات الفواتير والمدفوعات واستقبال نجوم تيليجرام (Telegram Stars) بدون أي تعقيدات.\n\n` +
+      `<b>الخيارات المتاحة:</b>\n` +
+      `• ربط بوت جديد وإدارته فورياً\n` +
       `• استعراض الخطط والأسعار\n` +
-      `• شروط الخدمة وسياسة الاستخدام\n` +
-      `• ربط بوت جديد وإدارة متاجرك`;
+      `• الشروط والسياسة`;
 
     const keyboard = new InlineKeyboard()
+      .text('🤖 ربط / تفعيل بوت جديد', 'platform:link_bot')
+      .row()
       .text('💎 الخطط والأسعار', 'platform:plans')
       .text('📜 الشروط والسياسة', 'platform:terms')
       .row()
-      .text('🤖 فتح / ربط بوت جديد', 'platform:link_bot')
-      .row()
-      .text('💬 الدعم والمساعدة', 'platform:support');
+      .text('💬 الدعم الفني للمنصة', 'platform:support');
+
+    if (isSuperAdmin) {
+      keyboard.row().text('👑 لوحة تحكم السوبر أدمن (إدارة المنصة)', 'platform:superadmin_main');
+    }
 
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
 
-  // 2. Token Input Handler (Catches Bot Tokens sent in chat directly)
+  // 2. SuperAdmin Main Panel View
+  bot.callbackQuery('platform:superadmin_main', async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    if (!fromId || !(await checkIsSuperAdmin(fromId))) {
+      await ctx.answerCallbackQuery({ text: 'عذراً، هذه اللوحة مخصصة لإدارة المنصة فقط' }).catch(() => {});
+      return;
+    }
+
+    const supabase = getSupabase();
+    const [merchantsCountRes, botsCountRes, invoicesCountRes, paymentsRes] = await Promise.all([
+      supabase.from('merchants').select('id', { count: 'exact' }),
+      supabase.from('telegram_bots').select('id', { count: 'exact' }),
+      supabase.from('invoices').select('id', { count: 'exact' }).is('deleted_at', null),
+      supabase.from('payments').select('amount').eq('status', 'successful'),
+    ]);
+
+    const totalMerchants = merchantsCountRes.count ?? 0;
+    const totalBots = botsCountRes.count ?? 0;
+    const totalInvoices = invoicesCountRes.count ?? 0;
+    const totalRevenueStars = (paymentsRes.data || []).reduce((acc, p) => acc + (p.amount || 0), 0);
+
+    const text =
+      `👑 <b>لوحة تحكم السوبر أدمن | إدارة المنصة</b>\n\n` +
+      `<b>مؤشرات المنصة الكلية:</b>\n` +
+      `• إجمالي التجار المشتركين: <b>${totalMerchants}</b> تاجر\n` +
+      `• إجمالي البوتات المتصلة: <b>${totalBots}</b> بوت نشط\n` +
+      `• إجمالي الفواتير الصادرة: <b>${totalInvoices}</b> فاتورة\n` +
+      `• إجمالي النجوم المحصلة: <b>${totalRevenueStars} ⭐️ Stars</b>\n\n` +
+      `اختر من القائمة أدناه لإدارة المشتركين أو الرصيد:`;
+
+    const keyboard = new InlineKeyboard()
+      .text('👥 قائمة المشتركين والتجار', 'platform:superadmin_merchants')
+      .row()
+      .text('🔄 تحديث الإحصائيات', 'platform:superadmin_main')
+      .text('🔙 الرئيسية', 'platform:main_menu');
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  // 3. SuperAdmin Merchants & Usage List
+  bot.callbackQuery('platform:superadmin_merchants', async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    if (!fromId || !(await checkIsSuperAdmin(fromId))) return;
+
+    const supabase = getSupabase();
+    const { data: merchants } = await supabase
+      .from('merchants')
+      .select('*, users(*), usage(*), telegram_bots(*), subscriptions(*, plans(*))')
+      .order('created_at', { ascending: false })
+      .limit(8);
+
+    let text = `👥 <b>قائمة المشتركين والتجار (${merchants?.length || 0}):</b>\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    if (!merchants || merchants.length === 0) {
+      text += `<i>لا يوجد تجار مسجلين حتى الآن.</i>\n`;
+    } else {
+      for (const m of merchants) {
+        const botUser = m.telegram_bots?.[0]?.bot_username ? `@${m.telegram_bots[0].bot_username}` : 'بلا بوت';
+        const plan = m.subscriptions?.[0]?.plans?.name || 'Free';
+        const used = m.usage?.[0]?.operations_used ?? 0;
+        const base = m.usage?.[0]?.base_operations ?? 20;
+        const bonus = m.usage?.[0]?.bonus_credits ?? 0;
+        const avail = Math.max(0, (base + bonus) - used);
+
+        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser})\n`;
+        text += `  الخطة: <code>${plan}</code> | المتاح: <code>${avail}</code> (المستهلك: <code>${used}</code>)\n`;
+        text += `  الحالة: <b>${m.status === 'active' ? '[نشط]' : '[متوقف]'}</b>\n\n`;
+
+        keyboard.text(`⚡ شحن رصيد: ${m.business_name || botUser}`, `platform:add_credits:${m.id}`).row();
+      }
+    }
+
+    keyboard
+      .text('🔙 عودة للوحة السوبر أدمن', 'platform:superadmin_main');
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  // 4. SuperAdmin Add Bonus Credits Handler
+  bot.callbackQuery(/^platform:add_credits:(.+)$/, async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    if (!fromId || !(await checkIsSuperAdmin(fromId))) return;
+
+    const merchantId = ctx.match?.[1];
+    if (!merchantId) return;
+
+    const supabase = getSupabase();
+    const { data: usage } = await supabase.from('usage').select('*').eq('merchant_id', merchantId).single();
+
+    const currentBonus = usage?.bonus_credits ?? 0;
+    const newBonus = currentBonus + 50;
+
+    await supabase.from('usage').update({ bonus_credits: newBonus, updated_at: new Date().toISOString() }).eq('merchant_id', merchantId);
+
+    await ctx.answerCallbackQuery({ text: `✅ تم شحن +50 عملية إضافية بنجاح! الرصيد الإضافي الآن: ${newBonus}` });
+
+    // Return to merchants list
+    const { data: merchants } = await supabase
+      .from('merchants')
+      .select('*, users(*), usage(*), telegram_bots(*), subscriptions(*, plans(*))')
+      .order('created_at', { ascending: false })
+      .limit(8);
+
+    let text = `👥 <b>قائمة المشتركين والتجار:</b>\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    if (merchants) {
+      for (const m of merchants) {
+        const botUser = m.telegram_bots?.[0]?.bot_username ? `@${m.telegram_bots[0].bot_username}` : 'بلا بوت';
+        const plan = m.subscriptions?.[0]?.plans?.name || 'Free';
+        const used = m.usage?.[0]?.operations_used ?? 0;
+        const base = m.usage?.[0]?.base_operations ?? 20;
+        const bonus = m.usage?.[0]?.bonus_credits ?? 0;
+        const avail = Math.max(0, (base + bonus) - used);
+
+        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser})\n`;
+        text += `  الخطة: <code>${plan}</code> | المتاح: <code>${avail}</code> (المستهلك: <code>${used}</code>)\n`;
+        text += `  الحالة: <b>${m.status === 'active' ? '[نشط]' : '[متوقف]'}</b>\n\n`;
+
+        keyboard.text(`⚡ شحن رصيد: ${m.business_name || botUser}`, `platform:add_credits:${m.id}`).row();
+      }
+    }
+
+    keyboard.text('🔙 عودة للوحة السوبر أدمن', 'platform:superadmin_main');
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  // 5. Token Input Handler (Catches Bot Tokens sent in chat directly)
   bot.on('message:text', async (ctx: Context) => {
     const text = ctx.message?.text?.trim();
     const from = ctx.from;
@@ -89,7 +241,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     const tokenRegex = /^\d{8,12}:[A-Za-z0-9_-]{35,}$/;
 
     if (tokenRegex.test(text)) {
-      const waitMsg = await ctx.reply('⏳ <i>جاري التحقق من رمز البوت وتشفيره وتفعيل الـ Webhook...</i>', {
+      const waitMsg = await ctx.reply('<i>جاري التحقق من رمز البوت وتشفيره وتفعيل الـ Webhook...</i>', {
         parse_mode: 'HTML',
       });
 
@@ -101,81 +253,61 @@ function setupPlatformBotHandlers(bot: Bot) {
           .from('users')
           .select('id')
           .eq('telegram_user_id', from.id)
-          .single();
+          .maybeSingle();
 
         if (!user) {
-          const { data: newUser, error: uErr } = await supabase
+          const { data: newUser } = await supabase
             .from('users')
-            .insert({ telegram_user_id: from.id, role: 'merchant' })
+            .insert({
+              telegram_user_id: from.id,
+              role: 'merchant',
+            })
             .select('id')
             .single();
-
-          if (uErr || !newUser) throw new Error(`فشل إنشاء حساب المستخدم: ${uErr?.message}`);
           user = newUser;
         }
 
-        // 2. Get or Create Merchant Record
+        if (!user) throw new Error('تعذر إنشاء أو مطابقة حساب المستخدم في النظام.');
+
+        // 2. Get or Create Merchant
         let { data: merchant } = await supabase
           .from('merchants')
-          .select('id, status')
+          .select('id')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
         if (!merchant) {
-          const businessName = from.first_name ? `متجر ${from.first_name}` : 'متجري الرقمي';
-          const { data: newMerchant, error: mErr } = await supabase
+          const { data: newMerchant } = await supabase
             .from('merchants')
             .insert({
               user_id: user.id,
-              business_name: businessName,
+              business_name: from.first_name ? `متجر ${from.first_name}` : 'متجري الرقمي',
               status: 'active',
             })
-            .select('id, status')
+            .select('id')
             .single();
-
-          if (mErr || !newMerchant) throw new Error(`فشل إنشاء ملف التاجر: ${mErr?.message}`);
           merchant = newMerchant;
-
-          // Initialize Usage quota
-          await supabase.from('usage').insert({
-            merchant_id: merchant.id,
-            base_operations: 20,
-            bonus_credits: 0,
-            operations_used: 0,
-          });
-
-          // Attach Free Plan Subscription
-          const { data: freePlan } = await supabase.from('plans').select('id').eq('code', 'free').single();
-          if (freePlan) {
-            await supabase.from('subscriptions').insert({
-              merchant_id: merchant.id,
-              plan_id: freePlan.id,
-              status: 'active',
-              starts_at: new Date().toISOString(),
-            });
-          }
         }
 
+        if (!merchant) throw new Error('تعذر إعداد ملف التاجر في قاعدة البيانات.');
+
         // 3. Register & Encrypt the Bot
-        const appBaseUrl = process.env.APP_BASE_URL;
-        const linkedBot = await registerBot({
+        const botRecord = await registerBot({
           merchantId: merchant.id,
           rawToken: text,
-          appBaseUrl,
         });
 
-        // 4. Success Message
-        let successText =
-          `🎉 <b>تم ربط بوتك بنجاح وأمان تام!</b>\n\n` +
-          `• <b>اسم البوت:</b> ${linkedBot.botFirstName || linkedBot.botUsername}\n` +
-          `• <b>المعرف:</b> @${linkedBot.botUsername}\n` +
-          `• <b>الحالة:</b> 🟢 ${linkedBot.status === 'active' ? 'نشط ومتصل بالـ Webhook' : 'متصل'}\n` +
-          `• <b>الأمان:</b> 🔒 تم تشفير التوكن عسكرياً بـ <code>AES-256-GCM</code>\n\n` +
-          `🚀 <b>ماذا تفعل الآن؟</b>\n` +
-          `ادخل إلى بوتك (@${linkedBot.botUsername}) واضغط على <code>/start</code> لتفتح لك <b>لوحة تحكم التاجر</b> فورياً!`;
+        const successText =
+          `<b>تم ربط وتفعيل بوتك بنجاح</b>\n\n` +
+          `• اسم البوت: <b>${botRecord.botFirstName || botRecord.botUsername}</b>\n` +
+          `• يوزر البوت: <b>@${botRecord.botUsername}</b>\n` +
+          `• التشفير: <b>AES-256-GCM نشط</b>\n` +
+          `• الربط: <b>Webhook فوري ومتصل</b>\n\n` +
+          `<b>الخطوة التالية:</b>\n` +
+          `ادخل إلى بوتك الآن <b>@${botRecord.botUsername}</b> واضغط على <b>لوحة الإدارة</b> أو <b>/start</b> للبدء فورياً في إنشاء الفواتير ومشاركتها مع عملائك!`;
 
         const keyboard = new InlineKeyboard()
-          .url('🚀 الانتقال إلى لوحة تحكم بوتك', `https://t.me/${linkedBot.botUsername}`)
+          .url(`فتح البوت @${botRecord.botUsername}`, `https://t.me/${botRecord.botUsername}?start=admin`)
           .row()
           .text('🔙 القائمة الرئيسية', 'platform:main_menu');
 
@@ -183,99 +315,92 @@ function setupPlatformBotHandlers(bot: Bot) {
         await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: keyboard });
       } catch (err: any) {
         await ctx.api.deleteMessage(chat.id, waitMsg.message_id).catch(() => {});
-        await ctx.reply(`⚠️ <b>تعذر ربط البوت:</b>\n${err?.message || 'تأكد من صحة التوكن وحاول ثانية.'}`, {
-          parse_mode: 'HTML',
-        });
+        await ctx.reply(`تعذر ربط البوت: ${err?.message || 'تأكد من صحة التوكن من @BotFather وحاول مجدداً.'}`);
       }
-    } else {
-      // User sent text that is not a token
-      const helpText =
-        `💡 <b>لربط متجرك الجديد:</b>\n\n` +
-        `يرجى إرسال <b>API Token</b> الذي حصلت عليه من @BotFather مباشرة في هذه المحادثة.\n\n` +
-        `مثال على شكل التوكن:\n<code>123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ</code>`;
-
-      const keyboard = new InlineKeyboard()
-        .text('💎 الخطط والأسعار', 'platform:plans')
-        .text('🔙 الرئيسية', 'platform:main_menu');
-
-      await ctx.reply(helpText, { parse_mode: 'HTML', reply_markup: keyboard });
     }
   });
 
-  // 3. Callback queries for Platform Bot
-  bot.on('callback_query:data', async (ctx: Context) => {
-    const data = ctx.callbackQuery?.data;
-    await ctx.answerCallbackQuery().catch(() => {});
+  // 6. Main Menu & Navigation Callbacks
+  bot.callbackQuery('platform:main_menu', async (ctx: Context) => {
+    const from = ctx.from;
+    const isSuperAdmin = from ? await checkIsSuperAdmin(from.id) : false;
 
-    if (data === 'platform:plans') {
-      const supabase = getSupabase();
-      const { data: plans } = await supabase.from('plans').select('*').eq('is_active', true);
+    const text =
+      `<b>منصة Telegram SaaS Payments</b>\n\n` +
+      `المنصة السحابية المتكاملة لربط بوتات الفواتير والمدفوعات واستقبال نجوم تيليجرام (Telegram Stars) بكل سهولة وأمان.`;
 
-      let text = `💎 <b>الخطط والأسعار المتاحة:</b>\n\n`;
-      text += `🟢 <b>الخطة المجانية (FREE):</b>\n`;
-      text += `• 20 فاتورة أو طلب (رصيد على مستوى الحساب)\n`;
-      text += `• 5 منتجات رقمية مستقلة (مخزون أكواد غير محدود)\n`;
-      text += `• بوت تيليجرام واحد\n`;
-      text += `• مناسبة جداً للتجربة والانطلاق\n\n`;
+    const keyboard = new InlineKeyboard()
+      .text('🤖 ربط / تفعيل بوت جديد', 'platform:link_bot')
+      .row()
+      .text('💎 الخطط والأسعار', 'platform:plans')
+      .text('📜 الشروط والسياسة', 'platform:terms')
+      .row()
+      .text('💬 الدعم الفني للمنصة', 'platform:support');
 
-      const proPlan = plans?.find(p => p.code === 'pro_monthly');
-      const starsPrice = proPlan?.price_stars ?? 50;
-      const usdPrice = proPlan?.price_usd ?? 1;
-
-      text += `⭐ <b>الخطة الاحترافية (PRO):</b>\n`;
-      text += `• <b>$${usdPrice}/شهرياً</b> أو ما يعادلها بـ <b>${starsPrice} ⭐️ Stars</b>\n`;
-      text += `• 100 عملية شهرية + باقات رصيد إضافية تراكمية\n`;
-      text += `• حتى 50 منتجاً رقمياً\n`;
-      text += `• ربط عدة بوتات ودعم فني مباشر\n\n`;
-
-      const keyboard = new InlineKeyboard()
-        .text('🤖 ربط بوتك الآن', 'platform:link_bot')
-        .row()
-        .text('🔙 الرئيسية', 'platform:main_menu');
-
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    } else if (data === 'platform:terms') {
-      const text = 
-        `📜 <b>الشروط والأحكام وسياسة الاستخدام:</b>\n\n` +
-        `1. الالتزام بسياسات وقوانين Telegram وسياسات بيع المحتوى الرقمي.\n` +
-        `2. يتم تشفير رموز البوتات (Bot Tokens) عسكرياً بـ AES-256-GCM لحمايتها.\n` +
-        `3. يحظر استخدام الخدمة في أي أنشطة احتيالية أو غير مصرح بها.\n` +
-        `4. المدفوعات الرقمية تتم بالكامل عبر البنية التحتية الأصلية لـ Telegram Stars.`;
-
-      const keyboard = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    } else if (data === 'platform:link_bot') {
-      const text = 
-        `🤖 <b>طريقة ربط بوت جديد:</b>\n\n` +
-        `1. ادخل إلى بوت <b>@BotFather</b> وأنشئ بوتاً جديداً عبر الأمر <code>/newbot</code>.\n` +
-        `2. انسخ الـ API Token الذي يعطيك إياه BotFather.\n` +
-        `3. <b>أرسل التوكن هنا في هذه المحادثة مباشرة</b> وسنقوم بربطه وتشفيره لك فورياً!\n\n` +
-        `🔒 <i>التوكن الخاص بك مشفر بالكامل ولا يمكن لأي شخص الاطلاع عليه.</i>`;
-
-      const keyboard = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    } else if (data === 'platform:support') {
-      const text =
-        `💬 <b>الدعم الفني والمساعدة:</b>\n\n` +
-        `إذا واجهتك أي مشكلة أو كان لديك استفسار حول استخدام المنصة، يمكنك التواصل مع فريق الدعم.\n\n` +
-        `⚡ منصة سحابية لإدارة المدفوعات الرقمية والـ Stars.`;
-
-      const keyboard = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-    } else if (data === 'platform:main_menu') {
-      const text = 
-        `👋 <b>أهلاً بك مجدداً في منصة Telegram SaaS Payments!</b>\n\n` +
-        `اختر ما يناسبك من القائمة أدناه أو أرسل توكن بوت جديد لربطه:`;
-
-      const keyboard = new InlineKeyboard()
-        .text('💎 الخطط والأسعار', 'platform:plans')
-        .text('📜 الشروط والسياسة', 'platform:terms')
-        .row()
-        .text('🤖 فتح / ربط بوت جديد', 'platform:link_bot')
-        .row()
-        .text('💬 الدعم والمساعدة', 'platform:support');
-
-      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    if (isSuperAdmin) {
+      keyboard.row().text('👑 لوحة تحكم السوبر أدمن (إدارة المنصة)', 'platform:superadmin_main');
     }
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  bot.callbackQuery('platform:link_bot', async (ctx: Context) => {
+    const text =
+      `<b>طريقة ربط وتفعيل بوت فواتير جديد:</b>\n\n` +
+      `1. افتح بوت <b>@BotFather</b> وأنشئ بوتاً جديداً عبر الأمر <code>/newbot</code>.\n` +
+      `2. انسخ الـ <b>API Token</b> الذي يمنحك إياه BotFather.\n` +
+      `3. <b>أرسل التوكن هنا في هذه المحادثة مباشرة!</b>\n\n` +
+      `<i>يتم تشفير التوكن فورياً بأعلى معايير الأمان (AES-256-GCM).</i>`;
+
+    const keyboard = new InlineKeyboard()
+      .url('فتح @BotFather', 'https://t.me/BotFather')
+      .row()
+      .text('🔙 الرئيسية', 'platform:main_menu');
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  bot.callbackQuery('platform:plans', async (ctx: Context) => {
+    const text =
+      `<b>الخطط والباقات المتاحة:</b>\n\n` +
+      `1️⃣ <b>خطة Free Starter (المجانية):</b>\n` +
+      `• 20 عملية مجاناً كل دورة تجديد.\n` +
+      `• فواتير وروابط دفع غير محدودة.\n` +
+      `• دعم كامل لمدفوعات Telegram Stars.\n\n` +
+      `2️⃣ <b>خطة Pro Merchant (للمحترفين):</b>\n` +
+      `• 1000 عملية مفوترة.\n` +
+      `• رصيد إضافي متراكم (لا ينتهي أبداً).\n` +
+      `• أولوية في المعالجة الفورية.`;
+
+    const keyboard = new InlineKeyboard()
+      .text('🤖 ابدأ بربط بوتك الآن مجاناً', 'platform:link_bot')
+      .row()
+      .text('🔙 الرئيسية', 'platform:main_menu');
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  bot.callbackQuery('platform:terms', async (ctx: Context) => {
+    const text =
+      `<b>شروط الخدمة والسياسة:</b>\n\n` +
+      `• تخضع جميع المدفوعات لسياسات شروط خدمة Telegram Stars الرسمية.\n` +
+      `• يلتزم التاجر بتقديم خدمات مشروعة تتوافق مع القوانين والأنظمة.\n` +
+      `• تضمن المنصة تشفير بيانات الاعتماد وعدم مشاركة أي توكنات مع أطراف خارجية.`;
+
+    const keyboard = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  bot.callbackQuery('platform:support', async (ctx: Context) => {
+    const text =
+      `<b>الدعم الفني والمساعدة:</b>\n\n` +
+      `لأي استفسارات تقنية أو طلب ترقية باقاتك، يمكنك التواصل مع فريق الدعم الفني.`;
+
+    const keyboard = new InlineKeyboard()
+      .url('تواصل مع الدعم', 'https://t.me/telegram')
+      .row()
+      .text('🔙 الرئيسية', 'platform:main_menu');
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
 }

@@ -1,6 +1,7 @@
 import { Api } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 import { Invoice, Refund } from '../types/index.js';
+import { getMerchantSettings } from './settings-service.js';
 
 export interface CompactPayload {
   i: string; // invoiceId
@@ -75,11 +76,11 @@ export async function sendTelegramStarsInvoice(
 }
 
 /**
- * Handles pre_checkout_query: checks inventory before allowing Telegram to charge Stars
+ * Handles pre_checkout_query: checks invoice status before allowing Telegram to charge Stars
  */
 export async function handlePreCheckoutQuery(api: Api, preCheckoutQuery: any): Promise<boolean> {
   const supabase = getSupabase();
-  const { invoiceId, productId } = parseInvoicePayload(preCheckoutQuery.invoice_payload);
+  const { invoiceId } = parseInvoicePayload(preCheckoutQuery.invoice_payload);
 
   if (!invoiceId) {
     await api.answerPreCheckoutQuery(preCheckoutQuery.id, false, {
@@ -91,7 +92,7 @@ export async function handlePreCheckoutQuery(api: Api, preCheckoutQuery: any): P
   // 1. Verify Invoice is still pending
   const { data: inv } = await supabase
     .from('invoices')
-    .select('id, status, total_amount')
+    .select('id, status, total_amount, expires_at')
     .eq('id', invoiceId)
     .single();
 
@@ -102,20 +103,11 @@ export async function handlePreCheckoutQuery(api: Api, preCheckoutQuery: any): P
     return false;
   }
 
-  // 2. If it is a digital code product, check if inventory is available
-  if (productId) {
-    const { count: availCount } = await supabase
-      .from('digital_product_codes')
-      .select('id', { count: 'exact' })
-      .eq('product_id', productId)
-      .eq('is_used', false);
-
-    if (!availCount || availCount <= 0) {
-      await api.answerPreCheckoutQuery(preCheckoutQuery.id, false, {
-        error_message: 'نعتذر منك، نفد مخزون هذا المنتج الرقمي حالياً.',
-      });
-      return false;
-    }
+  if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
+    await api.answerPreCheckoutQuery(preCheckoutQuery.id, false, {
+      error_message: 'عذراً، انتهت صلاحية هذه الفاتورة.',
+    });
+    return false;
   }
 
   // Pre-checkout approved!
@@ -124,14 +116,14 @@ export async function handlePreCheckoutQuery(api: Api, preCheckoutQuery: any): P
 }
 
 /**
- * Handles successful_payment: Executes atomic idempotent payment registration, code delivery, and merchant notification
+ * Handles successful_payment: Executes atomic idempotent payment registration, merchant settings custom notes, and merchant notification
  */
 export async function handleSuccessfulPayment(
   api: Api,
   chatId: number,
   customerTelegramId: number,
   successfulPayment: SuccessfulPaymentEventData
-): Promise<{ success: boolean; deliveredCode?: string | null }> {
+): Promise<{ success: boolean }> {
   const supabase = getSupabase();
   const { invoiceId, orderId, productId } = parseInvoicePayload(successfulPayment.invoice_payload);
 
@@ -155,7 +147,7 @@ export async function handleSuccessfulPayment(
   const amount = successfulPayment.total_amount;
 
   // 1. Execute Atomic Idempotent SQL Function
-  const { data: rpcResult, error: rpcError } = await supabase.rpc('process_successful_payment_idempotent', {
+  const { error: rpcError } = await supabase.rpc('process_successful_payment_idempotent', {
     p_bot_id: botId,
     p_merchant_id: merchantId,
     p_invoice_id: invoiceId,
@@ -180,52 +172,47 @@ export async function handleSuccessfulPayment(
     }, { onConflict: 'telegram_charge_id' });
 
     await supabase.from('invoices').update({ status: 'paid', paid_at: new Date().toISOString() }).eq('id', invoiceId);
-    if (orderId) {
-      await supabase.from('orders').update({ status: 'completed' }).eq('id', orderId);
-    }
   }
 
-  const deliveredCode = rpcResult?.[0]?.delivered_code;
+  // 2. Fetch Merchant Settings for Custom Thank You Message & Notification Preferences
+  const settings = await getMerchantSettings(merchantId);
 
-  // 2. Deliver code/content to Customer in Telegram Chat
-  let customerMsg = `🎉 <b>تم تأكيد دفعك بنجاح!</b>\n\n`;
+  // 3. Deliver Confirmation Note to Customer
+  let customerMsg = `<b>تم تأكيد دفعك بنجاح</b>\n\n`;
   customerMsg += `• الفاتورة: <b>${invoice.title}</b> (<code>${invoice.invoice_number}</code>)\n`;
-  customerMsg += `• المبلغ: <b>${amount} ⭐️ Stars</b>\n`;
+  customerMsg += `• المبلغ المسدد: <b>${amount} ⭐️ Stars</b>\n`;
   customerMsg += `• رقم المعاملة: <code>${chargeId}</code>\n\n`;
 
-  if (deliveredCode) {
-    customerMsg += `📦 <b>بيانات المنتج الرقمي الخاص بك:</b>\n`;
-    customerMsg += `<code>${deliveredCode}</code>\n\n`;
-    customerMsg += `<i>(احتفظ بهذا الكود، تم استهلاكه وتسليمه لك حصرياً).</i>`;
+  if (settings.custom_thankyou_msg) {
+    customerMsg += `<b>رسالة من التاجر:</b>\n${settings.custom_thankyou_msg}\n\n`;
   } else {
-    customerMsg += `شكراً لتعاملك معنا! تم إشعار صاحب المتجر بإتمام العملية.`;
+    customerMsg += `شكراً لتعاملك معنا! تم إشعار صاحب المتجر بإتمام العملية.\n`;
   }
 
   await api.sendMessage(chatId, customerMsg, { parse_mode: 'HTML' });
 
-  // 3. Notify Merchant Owner
-  const { data: merchantBot } = await supabase
-    .from('telegram_bots')
-    .select('*, merchants!inner(users!inner(telegram_user_id))')
-    .eq('id', botId)
-    .single();
+  // 4. Notify Merchant Owner (if enabled in settings)
+  if (settings.notify_on_payment !== false) {
+    const { data: merchantBot } = await supabase
+      .from('telegram_bots')
+      .select('*, merchants!inner(users!inner(telegram_user_id))')
+      .eq('id', botId)
+      .single();
 
-  const merchantTgId = merchantBot?.merchants?.users?.telegram_user_id;
-  if (merchantTgId) {
-    const notifyText =
-      `🔔 <b>إشعار عملية بيع وفاتورة مسددة!</b>\n\n` +
-      `• الفاتورة: <b>${invoice.title}</b> (<code>${invoice.invoice_number}</code>)\n` +
-      `• المبلغ المستلم: <b>${amount} ⭐️ Stars</b>\n` +
-      `• رقم المعاملة: <code>${chargeId}</code>\n` +
-      `• معرف العميل: <code>${customerTelegramId}</code>`;
+    const merchantTgId = merchantBot?.merchants?.users?.telegram_user_id;
+    if (merchantTgId) {
+      const notifyText =
+        `<b>إشعار عملية سداد جديدة</b>\n\n` +
+        `• الفاتورة: <b>${invoice.title}</b> (<code>${invoice.invoice_number}</code>)\n` +
+        `• المبلغ المستلم: <b>${amount} ⭐️ Stars</b>\n` +
+        `• رقم المعاملة: <code>${chargeId}</code>\n` +
+        `• معرف العميل: <code>${customerTelegramId}</code>`;
 
-    await api.sendMessage(merchantTgId, notifyText, { parse_mode: 'HTML' }).catch(() => {});
+      await api.sendMessage(merchantTgId, notifyText, { parse_mode: 'HTML' }).catch(() => {});
+    }
   }
 
-  return {
-    success: true,
-    deliveredCode,
-  };
+  return { success: true };
 }
 
 /**
