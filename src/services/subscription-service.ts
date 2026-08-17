@@ -1,4 +1,4 @@
-import { InlineKeyboard } from 'grammy';
+import { Api, InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 import { getPlatformBot } from '../bot/platform-bot.js';
 import { Usage, Subscription, Plan } from '../types/index.js';
@@ -12,6 +12,12 @@ export interface UsageSummary {
   cycleResetAt: string;
   plan: Plan | null;
 }
+
+export const CREDIT_PACKS: Record<string, { code: string; name: string; credits: number; priceStars: number }> = {
+  pack_50: { code: 'pack_50', name: 'باقة 50 عملية إضافية', credits: 50, priceStars: 25 },
+  pack_200: { code: 'pack_200', name: 'باقة 200 عملية إضافية', credits: 200, priceStars: 90 },
+  pack_500: { code: 'pack_500', name: 'باقة 500 عملية إضافية', credits: 500, priceStars: 200 },
+};
 
 /**
  * Calculates current available quota and evaluates low-balance alerts
@@ -27,14 +33,13 @@ export async function getMerchantUsageSummary(merchantId: string): Promise<Usage
   const usage = usageRes.data as Usage | null;
   const sub = subRes.data as (Subscription & { plans: Plan }) | null;
 
-  const base = usage?.base_operations ?? 20;
+  const base = usage?.base_operations ?? 10;
   const bonus = usage?.bonus_credits ?? 0;
   const used = usage?.operations_used ?? 0;
   const available = Math.max(0, (base + bonus) - used);
 
   // Check if remaining operations < 10 and alert not yet sent
   if (available < 10 && usage && !usage.low_balance_alert_sent) {
-    // Fire background notification asynchronously
     sendLowBalanceAlert(merchantId, available).catch(() => {});
   }
 
@@ -69,8 +74,8 @@ export async function sendLowBalanceAlert(merchantId: string, available: number)
   if (platformBot) {
     const text =
       `⚠️ <b>تنبيه انخفاض الرصيد:</b>\n\n` +
-      `رصيدك المتبقي الحالي هو: <b>${available} عملية</b> (فواتير/طلبات).\n` +
-      `هل ترغب في شحن رصيد إضافي أو ترقية خطتك لضمان استمرار المتجر دون توقف؟`;
+      `رصيدك المتبقي الحالي هو: <b>${available} عملية</b> (فواتير/مدفوعات).\n` +
+      `يمكنك ترقية خطتك أو شحن رصيد عمليات إضافي لضمان استمرار البوت دون توقف:`;
 
     const keyboard = new InlineKeyboard()
       .text('⚡ شحن رصيد / ترقية الخطة', 'platform:plans')
@@ -96,7 +101,7 @@ export async function sendLowBalanceAlert(merchantId: string, available: number)
 }
 
 /**
- * Adds non-expiring bonus credits to merchant account
+ * Adds non-expiring bonus credits to merchant account (e.g. for custom admin top-ups or credit packs)
  */
 export async function addBonusCredits(merchantId: string, credits: number): Promise<Usage> {
   if (credits <= 0) {
@@ -112,9 +117,8 @@ export async function addBonusCredits(merchantId: string, credits: number): Prom
     .single();
 
   const newBonus = (currentUsage?.bonus_credits ?? 0) + credits;
-  const available = ((currentUsage?.base_operations ?? 20) + newBonus) - (currentUsage?.operations_used ?? 0);
+  const available = ((currentUsage?.base_operations ?? 10) + newBonus) - (currentUsage?.operations_used ?? 0);
 
-  // If new available >= 10, reset low_balance_alert_sent flag so merchant gets notified next time it drops
   const shouldResetAlertFlag = available >= 10;
 
   const { data: updatedUsage, error } = await supabase
@@ -136,7 +140,7 @@ export async function addBonusCredits(merchantId: string, credits: number): Prom
 }
 
 /**
- * Upgrades subscription plan and resets monthly base quota
+ * Upgrades subscription plan and resets monthly base quota (30 days cycle)
  */
 export async function upgradeMerchantPlan(merchantId: string, planCode: string): Promise<Subscription> {
   const supabase = getSupabase();
@@ -150,7 +154,7 @@ export async function upgradeMerchantPlan(merchantId: string, planCode: string):
     .single();
 
   if (planErr || !plan) {
-    throw new Error('Selected plan not found or inactive');
+    throw new Error(`Selected plan not found or inactive: ${planCode}`);
   }
 
   // 2. Update Subscription
@@ -185,4 +189,56 @@ export async function upgradeMerchantPlan(merchantId: string, planCode: string):
     .eq('merchant_id', merchantId);
 
   return sub;
+}
+
+/**
+ * Sends a Telegram Stars Invoice from Platform Bot for purchasing a Plan or Credit Pack
+ */
+export async function sendPlatformSubscriptionStarsInvoice(
+  api: Api,
+  chatId: number,
+  merchantId: string,
+  type: 'plan' | 'credit_pack',
+  code: string
+): Promise<any> {
+  const supabase = getSupabase();
+
+  let title = '';
+  let description = '';
+  let starsAmount = 0;
+
+  if (type === 'plan') {
+    const { data: plan } = await supabase.from('plans').select('*').eq('code', code).single();
+    if (!plan) throw new Error('Plan not found');
+    title = `اشتراك ${plan.name}`;
+    description = `ترقية متجرك لباقة ${plan.name} (${plan.included_operations} عملية شهرياً)`;
+    starsAmount = plan.price_stars;
+  } else {
+    const pack = CREDIT_PACKS[code];
+    if (!pack) throw new Error('Credit pack not found');
+    title = pack.name;
+    description = `شحن ${pack.credits} عملية إضافية دائمة لا تنتهي`;
+    starsAmount = pack.priceStars;
+  }
+
+  // Compact payload < 128 bytes
+  const payloadStr = JSON.stringify({
+    t: type,
+    m: merchantId,
+    c: code,
+  });
+
+  return await api.sendInvoice(
+    chatId,
+    title.slice(0, 32),
+    description.slice(0, 255),
+    payloadStr,
+    'XTR',
+    [
+      {
+        label: title.slice(0, 32),
+        amount: starsAmount,
+      },
+    ]
+  );
 }

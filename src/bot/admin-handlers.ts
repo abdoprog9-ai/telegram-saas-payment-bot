@@ -544,7 +544,12 @@ export async function handleSubscriptionView(ctx: any, merchantId: string) {
     `• حالة الاشتراك: <b>${sub?.status === 'active' ? '[نشط]' : '[متوقف مؤقتاً]'}</b>\n\n` +
     `<i>ملاحظة: لشحن رصيد إضافي أو ترقية الباقة، يمكنك استخدام بوت المنصة الأساسي.</i>`;
 
+  const platformUser = process.env.PLATFORM_BOT_USERNAME || 'PlatformPaymentBot';
+  const subLink = `https://t.me/${platformUser.replace('@', '')}?start=sub_${merchantId}`;
+
   const keyboard = new InlineKeyboard()
+    .url('⚡ ترقية الباقة / شحن رصيد إضافي', subLink)
+    .row()
     .text('🔄 تحديث الرصيد', 'admin:subscription')
     .row()
     .text('🔙 لوحة التحكم', 'admin:main_menu');
