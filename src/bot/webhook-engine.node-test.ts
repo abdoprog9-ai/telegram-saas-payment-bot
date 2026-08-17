@@ -10,13 +10,12 @@ describe('Phase 2: Telegram Webhooks & Multi-Bot Routing Verification', () => {
 
     assert.ok(inline.length >= 3, 'Admin keyboard must have multiple rows');
     
-    // Check for Invoices, Products, Orders, Subscription, Settings
+    // Check for Create Invoice, Invoices, Subscription, Settings
     const allButtons = inline.flat();
     const buttonTexts = allButtons.map(b => b.text);
 
+    assert.ok(buttonTexts.some(t => t.includes('إنشاء فاتورة')), 'Must have Create Invoice button');
     assert.ok(buttonTexts.some(t => t.includes('الفواتير')), 'Must have Invoices button');
-    assert.ok(buttonTexts.some(t => t.includes('المنتجات')), 'Must have Products button');
-    assert.ok(buttonTexts.some(t => t.includes('الطلبات')), 'Must have Orders button');
     assert.ok(buttonTexts.some(t => t.includes('اشتراكي')), 'Must have Subscription button');
     assert.ok(buttonTexts.some(t => t.includes('الإعدادات')), 'Must have Settings button');
   });

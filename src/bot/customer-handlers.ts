@@ -2,7 +2,7 @@ import { InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 
 /**
- * Handles regular customer interaction when accessing the Merchant Bot
+ * Handles regular customer interaction when accessing the Merchant Bot (Pure Invoicing Portal)
  */
 export async function renderCustomerHome(ctx: any, merchantId: string, botId: string, botUsername: string) {
   const supabase = getSupabase();
@@ -21,7 +21,7 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
       updated_at: new Date().toISOString(),
     }, { onConflict: 'merchant_id,telegram_user_id' });
 
-  // 2. Check if customer has any pending invoices
+  // 2. Check if customer has any pending invoices in this bot
   const { data: pendingInvoices } = await supabase
     .from('invoices')
     .select('*')
@@ -29,23 +29,23 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
     .eq('bot_id', botId)
     .eq('status', 'pending')
     .is('deleted_at', null)
-    .limit(3);
+    .limit(5);
 
-  let text = `مرحباً بك <b>${from.first_name || 'عزيزي العميل'}</b> في متجرنا 🛍️\n\n`;
-
+  let text = `مرحباً بك <b>${from.first_name || 'عزيزي العميل'}</b> في بوابة الدفع والفواتير 💳\n\n`;
   const keyboard = new InlineKeyboard();
 
   if (pendingInvoices && pendingInvoices.length > 0) {
-    text += `⚠️ <b>لديك فواتير بانتظار الدفع:</b>\n`;
+    text += `📋 <b>لديك فواتير مستحقة الدفع:</b>\n\n`;
     for (const inv of pendingInvoices) {
-      text += `• <b>${inv.title}</b> (${inv.total_amount} ⭐️ Stars) - كود: <code>${inv.invoice_number}</code>\n`;
-      keyboard.text(`💳 سداد: ${inv.title}`, `pay:inv:${inv.id}`).row();
+      text += `• <b>${inv.title}</b> (<b>${inv.total_amount} ⭐️ Stars</b>)\n`;
+      text += `  رقم الفاتورة: <code>${inv.invoice_number}</code>\n\n`;
+      keyboard.text(`⭐️ سداد فاتورة ${inv.invoice_number}`, `pay:inv:${inv.id}`).row();
     }
-    text += `\n`;
+  } else {
+    text += `💡 <b>كيفية سداد الفواتير:</b>\n`;
+    text += `• يمكنك إرسال <b>رقم الفاتورة</b> مباشرة في هذه المحادثة (مثال: <code>INV-XXXXXX</code>) ليظهر لك أمر الدفع فورياً.\n`;
+    text += `• أو اضغط على رابط الفاتورة المباشر المرسل لك من صاحب المتجر لسدادها بنجوم تيليجرام في ثوانٍ معدودة! ⭐️\n`;
   }
-
-  text += `يمكنك تصفح المنتجات الرقمية المتوفرة عبر الزر أدناه:`;
-  keyboard.text('📦 تصفح المنتجات المتوفرة', 'cust:catalog').row();
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(async () => {
@@ -57,46 +57,8 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
 }
 
 /**
- * Handles customer catalog browsing
+ * Handles customer catalog browsing (kept for backward-compatibility if invoked)
  */
 export async function renderCustomerCatalog(ctx: any, merchantId: string, botId: string) {
-  const supabase = getSupabase();
-
-  const { data: products } = await supabase
-    .from('products')
-    .select('*')
-    .eq('merchant_id', merchantId)
-    .eq('bot_id', botId)
-    .eq('is_active', true)
-    .is('deleted_at', null);
-
-  if (!products || products.length === 0) {
-    const emptyKeyboard = new InlineKeyboard().text('🔙 العودة', 'cust:home');
-    const msg = '📦 لا توجد منتجات معروضة حالياً في المتجر. يرجى مراجعتنا لاحقاً!';
-    if (ctx.callbackQuery) {
-      await ctx.editMessageText(msg, { reply_markup: emptyKeyboard });
-    } else {
-      await ctx.reply(msg, { reply_markup: emptyKeyboard });
-    }
-    return;
-  }
-
-  let text = `📦 <b>المنتجات الرقمية المتوفرة:</b>\n\n`;
-  const keyboard = new InlineKeyboard();
-
-  for (const prod of products) {
-    text += `• <b>${prod.name}</b> - <code>${prod.price_stars} ⭐️ Stars</code>\n`;
-    if (prod.description) {
-      text += `  <i>${prod.description}</i>\n`;
-    }
-    keyboard.text(`🛒 شراء ${prod.name} (${prod.price_stars} ⭐️)`, `buy:prod:${prod.id}`).row();
-  }
-
-  keyboard.text('🔙 الرئيسية', 'cust:home');
-
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  }
+  return renderCustomerHome(ctx, merchantId, botId, '');
 }

@@ -4,31 +4,21 @@ import { decryptToken } from '../security/encryption.js';
 import {
   renderAdminDashboard,
   handleSubscriptionView,
-  handleProductsView,
   handleInvoicesView,
-  handleOrdersView,
   handleSettingsView,
   renderInvoiceDetail,
   handleDeleteInvoice,
-  renderProductDetail,
-  handleDeleteProduct,
   startCreateInvoiceWizard,
-  startAddProductWizard,
-  startRestockProductSelection,
-  promptRestockCodes,
   getAdminSession,
-  setAdminSession,
   clearAdminSession,
   handleAdminWizardTextInput,
 } from './admin-handlers.js';
-import { renderCustomerHome, renderCustomerCatalog } from './customer-handlers.js';
+import { renderCustomerHome } from './customer-handlers.js';
 import {
   sendTelegramStarsInvoice,
   handlePreCheckoutQuery,
   handleSuccessfulPayment,
 } from '../services/payment-service.js';
-import { createProductOrder } from '../services/order-service.js';
-import { createProduct } from '../services/product-service.js';
 import { TelegramBot } from '../types/index.js';
 
 interface CachedBot {
@@ -200,7 +190,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     }
   });
 
-  // 2. Text Message Handler (Dispatches to Admin Wizard or Invoice Number Lookup)
+  // 2. Text Message Handler (Dispatches to Admin Invoicing Wizard or Invoice Number Lookup)
   bot.on('message:text', async (ctx: Context, next) => {
     const fromId = ctx.from?.id;
     const chatId = ctx.chat?.id;
@@ -307,14 +297,6 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       await renderAdminDashboard(ctx, merchantId, botUsername, true);
     } else if (data === 'admin:subscription') {
       await handleSubscriptionView(ctx, merchantId);
-    } else if (data === 'admin:products') {
-      await handleProductsView(ctx, merchantId, botId);
-    } else if (data?.startsWith('admin:view_prod:')) {
-      const prodId = data.replace('admin:view_prod:', '');
-      await renderProductDetail(ctx, prodId, merchantId, botUsername);
-    } else if (data?.startsWith('admin:del_prod:')) {
-      const prodId = data.replace('admin:del_prod:', '');
-      await handleDeleteProduct(ctx, prodId, merchantId, botId);
     } else if (data === 'admin:invoices') {
       await handleInvoicesView(ctx, merchantId, botId);
     } else if (data?.startsWith('admin:view_inv:')) {
@@ -323,144 +305,18 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     } else if (data?.startsWith('admin:del_inv:')) {
       const invId = data.replace('admin:del_inv:', '');
       await handleDeleteInvoice(ctx, invId, merchantId, botId);
-    } else if (data === 'admin:orders') {
-      await handleOrdersView(ctx, merchantId, botId);
     } else if (data === 'admin:settings') {
       await handleSettingsView(ctx, botUsername, botId);
     } else if (data === 'admin:cancel_wizard') {
       if (fromId) clearAdminSession(fromId);
       await renderAdminDashboard(ctx, merchantId, botUsername);
-    }
-
-    // --- Admin Wizards ---
-    else if (data === 'admin:create_invoice') {
+    } else if (data === 'admin:create_invoice') {
       await startCreateInvoiceWizard(ctx, merchantId, botId, botUsername);
-    } else if (data === 'admin:skip_inv_desc') {
-      if (fromId) {
-        const session = getAdminSession(fromId);
-        if (session && session.step === 'invoice_desc') {
-          session.data.invoiceDesc = undefined;
-          session.step = 'invoice_amount';
-          setAdminSession(fromId, session);
-
-          const promptText =
-            `📝 <b>إنشاء الفاتورة (الخطوة 3 من 3):</b>\n\n` +
-            `أدخل <b>المبلغ المطلوب سداده بالنجوم (⭐️ Stars)</b> (مثال: <code>50</code>):`;
-          const kb = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
-          await ctx.editMessageText(promptText, { parse_mode: 'HTML', reply_markup: kb });
-        }
-      }
-    } else if (data === 'admin:add_product') {
-      await startAddProductWizard(ctx, merchantId, botId, botUsername);
-    } else if (data === 'admin:skip_prod_desc') {
-      if (fromId) {
-        const session = getAdminSession(fromId);
-        if (session && session.step === 'prod_desc') {
-          session.data.productDesc = undefined;
-          session.step = 'prod_price';
-          setAdminSession(fromId, session);
-
-          const promptText =
-            `📦 <b>إضافة منتج (الخطوة 3 من 4):</b>\n\n` +
-            `أدخل <b>سعر المنتج بالنجوم (⭐️ Stars)</b> (مثال: <code>20</code>):`;
-          const kb = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
-          await ctx.editMessageText(promptText, { parse_mode: 'HTML', reply_markup: kb });
-        }
-      }
-    } else if (data === 'admin:set_prod_type:code') {
-      if (fromId) {
-        const session = getAdminSession(fromId);
-        if (session) {
-          session.data.productType = 'code';
-          session.step = 'prod_codes';
-          setAdminSession(fromId, session);
-
-          const promptText =
-            `📥 <b>إدخال مخزون الأكواد الرقمية:</b>\n\n` +
-            `أرسل الآن قائمة الأكواد في رسالة نصية (<b>كل كود في سطر مستقل</b>):\n\n` +
-            `مثال:\n` +
-            `<code>CODE-111-AAA\nCODE-222-BBB\nCODE-333-CCC</code>`;
-          const kb = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
-          await ctx.editMessageText(promptText, { parse_mode: 'HTML', reply_markup: kb });
-        }
-      }
-    } else if (data === 'admin:set_prod_type:file') {
-      if (fromId) {
-        const session = getAdminSession(fromId);
-        if (session) {
-          clearAdminSession(fromId);
-          try {
-            const product = await createProduct({
-              merchantId,
-              botId,
-              name: session.data.productName || 'منتج رقمي',
-              description: session.data.productDesc,
-              priceStars: session.data.productPrice || 10,
-              productType: 'file',
-            });
-
-            const successText =
-              `🎉 <b>تمت إضافة المنتج الرقمي بنجاح!</b>\n\n` +
-              `• <b>المنتج:</b> ${product.name}\n` +
-              `• <b>السعر:</b> <b>${product.price_stars} ⭐️ Stars</b>\n` +
-              `• <b>النوع:</b> 📁 ملف / محتوى رقمي\n` +
-              `• <b>الحالة:</b> 🟢 معروض الآن في متجر البوت للعملاء!`;
-
-            const kb = new InlineKeyboard()
-              .text('📦 إدارة المنتجات', 'admin:products')
-              .text('🔙 الرئيسية', 'admin:main_menu');
-
-            await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: kb });
-          } catch (err: any) {
-            await ctx.reply(`⚠️ تعذر إضافة المنتج: ${err?.message || 'خطأ غير معروف'}`);
-          }
-        }
-      }
-    } else if (data === 'admin:import_codes') {
-      await startRestockProductSelection(ctx, merchantId, botId);
-    } else if (data?.startsWith('admin:restock:')) {
-      const targetProdId = data.replace('admin:restock:', '');
-      await promptRestockCodes(ctx, targetProdId, merchantId, botId, botUsername);
     }
 
     // --- Customer Views & Actions ---
     else if (data === 'cust:home') {
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
-    } else if (data === 'cust:catalog') {
-      await renderCustomerCatalog(ctx, merchantId, botId);
-    } else if (data?.startsWith('buy:prod:') && chatId && fromId) {
-      const productId = data.replace('buy:prod:', '');
-      try {
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('id')
-          .eq('merchant_id', merchantId)
-          .eq('telegram_user_id', fromId)
-          .single();
-
-        if (!customer) {
-          await ctx.reply('يرجى إعادة إرسال /start لتحديث بيانات حسابك.');
-          return;
-        }
-
-        const { order, invoice } = await createProductOrder({
-          merchantId,
-          botId,
-          customerId: customer.id,
-          productId,
-        });
-
-        await sendTelegramStarsInvoice(bot.api, chatId, invoice, {
-          orderId: order.id,
-          productId,
-        });
-      } catch (err: any) {
-        if (err?.message?.includes('MERCHANT_QUOTA_EXHAUSTED')) {
-          await ctx.reply('⚠️ نعتذر منك، عمليات الشراء والفوترة متوقفة مؤقتاً في المتجر حالياً. يرجى التواصل مع صاحب المتجر.');
-        } else {
-          await ctx.reply(`⚠️ تعذر بدء الفاتورة: ${err?.message || 'خطأ غير معروف'}`);
-        }
-      }
     } else if (data?.startsWith('pay:inv:') && chatId) {
       const invoiceId = data.replace('pay:inv:', '');
       const { data: invoice } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
