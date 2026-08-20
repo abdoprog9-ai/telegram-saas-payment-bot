@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
-import { registerBot } from '../services/bot-service.js';
+import { registerBot, unlinkBot } from '../services/bot-service.js';
 import { invalidateBotCache } from './bot-engine.js';
 import {
   addBonusCredits,
@@ -136,11 +136,12 @@ function setupPlatformBotHandlers(bot: Bot) {
       `المنصة السحابية المتكاملة لربط بوتات الفواتير والمدفوعات واستقبال نجوم تيليجرام (Telegram Stars) بدون أي تعقيدات.\n\n` +
       `<b>الخيارات المتاحة:</b>\n` +
       `• ربط بوت جديد وتفعيله فورياً\n` +
-      `• الخطط والاشتراكات الشهرية وشحن الرصيد\n` +
-      `• الشروط وسياسة الاستخدام`;
+      `• استعراض البوتات المربوطة وإدارتها أو فصل ربطها\n` +
+      `• الخطط والاشتراكات الشهرية وشحن الرصيد`;
 
     const keyboard = new InlineKeyboard()
       .text('🤖 ربط / تفعيل بوت جديد', 'platform:link_bot')
+      .text('📋 بوتاتي المربوطة', 'platform:my_bots')
       .row()
       .text('💎 الخطط والاشتراكات وشحن الرصيد', 'platform:plans')
       .text('📜 الشروط والسياسة', 'platform:terms')
@@ -317,7 +318,13 @@ function setupPlatformBotHandlers(bot: Bot) {
         await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: keyboard });
       } catch (err: any) {
         await ctx.api.deleteMessage(chat.id, waitMsg.message_id).catch(() => {});
-        await ctx.reply(`تعذر ربط البوت: ${err?.message || 'تأكد من صحة التوكن من @BotFather وحاول مجدداً.'}`);
+        const errKb = new InlineKeyboard()
+          .text('📋 استعراض بوتاتي المربوطة', 'platform:my_bots')
+          .row()
+          .text('🔙 الرئيسية', 'platform:main_menu');
+        await ctx.reply(`تعذر ربط البوت: ${err?.message || 'تأكد من صحة التوكن من @BotFather وحاول مجدداً.'}`, {
+          reply_markup: errKb,
+        });
       }
     }
   });
@@ -748,6 +755,7 @@ function setupPlatformBotHandlers(bot: Bot) {
 
     const keyboard = new InlineKeyboard()
       .text('🤖 ربط / تفعيل بوت جديد', 'platform:link_bot')
+      .text('📋 بوتاتي المربوطة', 'platform:my_bots')
       .row()
       .text('💎 الخطط والاشتراكات وشحن الرصيد', 'platform:plans')
       .text('📜 الشروط والسياسة', 'platform:terms')
@@ -759,6 +767,109 @@ function setupPlatformBotHandlers(bot: Bot) {
     }
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  // 12. Merchant "My Linked Bots" View & Unlinking Actions
+  const renderMyBotsView = async (ctx: Context, telegramUserId: number) => {
+    const supabase = getSupabase();
+
+    const { data: user } = await supabase.from('users').select('id').eq('telegram_user_id', telegramUserId).maybeSingle();
+    const { data: merchant } = user ? await supabase.from('merchants').select('id').eq('user_id', user.id).maybeSingle() : { data: null };
+
+    if (!merchant) {
+      const text =
+        `📋 <b>قائمة البوتات المربوطة:</b>\n\n` +
+        `<i>لا يوجد أي بوت مربوط بحسابك حتى الآن. يمكنك ربط أول بوت لك الآن بكل سهولة.</i>`;
+      const kb = new InlineKeyboard()
+        .text('🤖 ربط بوت جديد', 'platform:link_bot')
+        .row()
+        .text('🔙 الرئيسية', 'platform:main_menu');
+
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
+      } else {
+        await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+      }
+      return;
+    }
+
+    const { data: bots } = await supabase
+      .from('telegram_bots')
+      .select('*')
+      .eq('merchant_id', merchant.id)
+      .order('created_at', { ascending: false });
+
+    if (!bots || bots.length === 0) {
+      const text =
+        `📋 <b>قائمة البوتات المربوطة:</b>\n\n` +
+        `<i>لا يوجد أي بوت مربوط بحسابك حالياً. يمكنك ربط بوت جديد الآن.</i>`;
+      const kb = new InlineKeyboard()
+        .text('🤖 ربط بوت جديد', 'platform:link_bot')
+        .row()
+        .text('🔙 الرئيسية', 'platform:main_menu');
+
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
+      } else {
+        await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+      }
+      return;
+    }
+
+    let text = `📋 <b>قائمة البوتات المربوطة بحسابك (${bots.length}):</b>\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    for (const b of bots) {
+      const statusBadge = b.status === 'active' ? '🟢 متصل ونشط' : b.status === 'connected' ? '🟡 متصل' : '🔴 معطل';
+      const linkDate = new Date(b.created_at).toLocaleDateString('ar-EG');
+
+      text += `• <b>@${b.bot_username}</b> [${statusBadge}]\n`;
+      text += `  معرف البوت: <code>${b.telegram_bot_id}</code> | تاريخ الربط: <code>${linkDate}</code>\n\n`;
+
+      keyboard
+        .url(`🔗 فتح @${b.bot_username}`, `https://t.me/${b.bot_username}`)
+        .text(`🗑️ فصل الربط`, `plat:unlink_bot:${b.id}`)
+        .row();
+    }
+
+    keyboard
+      .text('🤖 ربط بوت إضافي', 'platform:link_bot')
+      .row()
+      .text('🔙 الرئيسية', 'platform:main_menu');
+
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    } else {
+      await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+    }
+  };
+
+  bot.callbackQuery('platform:my_bots', async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    if (!fromId) return;
+    await renderMyBotsView(ctx, fromId);
+  });
+
+  bot.callbackQuery(/^plat:unlink_bot:(.+)$/, async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    const botId = ctx.match?.[1];
+    if (!fromId || !botId) return;
+
+    const supabase = getSupabase();
+    const { data: user } = await supabase.from('users').select('id').eq('telegram_user_id', fromId).maybeSingle();
+    const { data: merchant } = user ? await supabase.from('merchants').select('id').eq('user_id', user.id).maybeSingle() : { data: null };
+
+    if (!merchant) return;
+
+    try {
+      const res = await unlinkBot(botId, merchant.id);
+      invalidateBotCache(botId);
+      await ctx.answerCallbackQuery({ text: `✅ تم فصل وإلغاء ربط @${res.botUsername} بنجاح` });
+    } catch (err: any) {
+      await ctx.answerCallbackQuery({ text: `⚠️ تعذر فصل الربط: ${err?.message}` });
+    }
+
+    await renderMyBotsView(ctx, fromId);
   });
 
   bot.callbackQuery('platform:link_bot', async (ctx: Context) => {

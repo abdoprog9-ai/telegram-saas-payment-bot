@@ -178,3 +178,38 @@ export async function registerBot(input: RegisterBotInput): Promise<SanitizedBot
     createdAt: newBot.created_at,
   };
 }
+
+/**
+ * Unlinks / removes a connected Telegram bot and clears its Telegram webhook
+ */
+export async function unlinkBot(botId: string, merchantId: string): Promise<{ success: boolean; botUsername: string }> {
+  const supabase = getSupabase();
+
+  const { data: bot, error } = await supabase
+    .from('telegram_bots')
+    .select('*')
+    .eq('id', botId)
+    .eq('merchant_id', merchantId)
+    .single();
+
+  if (error || !bot) {
+    throw new Error('البوت غير موجود أو لا تملك صلاحية إدارته.');
+  }
+
+  // Attempt to delete webhook from Telegram API
+  try {
+    const rawToken = decryptToken({
+      encryptedText: bot.encrypted_token,
+      iv: bot.token_iv,
+      authTag: bot.token_auth_tag,
+    });
+    await fetch(`https://api.telegram.org/bot${rawToken}/deleteWebhook`);
+  } catch (err: any) {
+    console.warn(`[unlinkBot] Warning deleting webhook for @${bot.bot_username}:`, err?.message);
+  }
+
+  // Delete bot from database
+  await supabase.from('telegram_bots').delete().eq('id', botId);
+
+  return { success: true, botUsername: bot.bot_username };
+}
