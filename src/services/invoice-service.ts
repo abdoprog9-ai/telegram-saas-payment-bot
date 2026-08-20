@@ -21,6 +21,7 @@ export interface CreateInvoiceInput {
   items?: CreateInvoiceItemInput[];
   expiresAt?: string;
   skipQuotaDeduction?: boolean; // When called from Order creation (Single Deduction Policy)
+  isTest?: boolean; // When created in sandbox test mode
 }
 
 /**
@@ -46,6 +47,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     items,
     expiresAt,
     skipQuotaDeduction = false,
+    isTest = false,
   } = input;
 
   const supabase = getSupabase();
@@ -58,8 +60,8 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     throw new Error('Total amount must be greater than 0');
   }
 
-  // 1. Quota Check & Single-Deduction Handling
-  if (!skipQuotaDeduction) {
+  // 1. Quota Check & Single-Deduction Handling (Test Invoices do NOT consume quota)
+  if (!skipQuotaDeduction && !isTest) {
     const { data: usage } = await supabase
       .from('usage')
       .select('base_operations, bonus_credits, operations_used')
@@ -90,6 +92,7 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
       total_amount: totalAmount,
       status: 'pending',
       expires_at: expiresAt || null,
+      is_test: isTest,
     })
     .select()
     .single();
@@ -112,8 +115,8 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<Invoice>
     await supabase.from('invoice_items').insert(itemRows);
   }
 
-  // 4. Deduct 1 operation from merchant account quota
-  if (!skipQuotaDeduction) {
+  // 4. Deduct 1 operation from merchant account quota (Skipped for test sandbox invoices)
+  if (!skipQuotaDeduction && !isTest) {
     await supabase.rpc('deduct_merchant_operation', { p_merchant_id: merchantId });
   }
 

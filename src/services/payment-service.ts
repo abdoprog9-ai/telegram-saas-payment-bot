@@ -249,33 +249,23 @@ export async function simulateTestPayment(
     amount: invoice.total_amount,
     currency: 'XTR',
     status: 'successful',
+    is_test: true,
     raw_payload: { simulated: true, invoiceId, customerTelegramId },
   }, { onConflict: 'telegram_charge_id' });
 
-  // 2. Update invoice status to paid
+  // 2. Update invoice status to paid and flag as is_test
   await supabase
     .from('invoices')
-    .update({ status: 'paid', paid_at: new Date().toISOString() })
+    .update({
+      status: 'paid',
+      paid_at: new Date().toISOString(),
+      is_test: true,
+    })
     .eq('id', invoiceId);
 
-  // 3. Deduct operation from usage
-  const { data: usage } = await supabase
-    .from('usage')
-    .select('operations_used')
-    .eq('merchant_id', invoice.merchant_id)
-    .single();
+  // Note: Sandbox test payments do NOT deduct from real merchant quota operations.
 
-  if (usage) {
-    await supabase
-      .from('usage')
-      .update({
-        operations_used: (usage.operations_used || 0) + 1,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('merchant_id', invoice.merchant_id);
-  }
-
-  // 4. Fetch Merchant Settings
+  // 3. Fetch Merchant Settings
   const settings = await getMerchantSettings(invoice.merchant_id);
 
   // 5. Send Confirmation to Customer

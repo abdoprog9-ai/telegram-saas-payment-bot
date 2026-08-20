@@ -147,6 +147,7 @@ export interface Invoice {
   expires_at?: string | null;
   paid_at?: string | null;
   deleted_at?: string | null;
+  is_test?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -176,6 +177,7 @@ export interface Payment {
   amount: number;
   currency: string;
   status: PaymentStatus;
+  is_test?: boolean;
   raw_payload?: Record<string, any> | null;
   created_at: string;
 }

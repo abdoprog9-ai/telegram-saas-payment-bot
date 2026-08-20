@@ -42,35 +42,34 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
   if (settings.custom_welcome_msg) {
     text += `<b>${settings.custom_welcome_msg}</b>\n\n`;
   } else {
-    text += `مرحباً بك <b>${from.first_name || 'عزيزي العميل'}</b> في <b>${bizTitle}</b> 💳\n\n`;
+    text += `مرحباً بك في <b>${bizTitle}</b>\n\n`;
   }
 
   const keyboard = new InlineKeyboard();
 
   if (pendingInvoices && pendingInvoices.length > 0) {
-    text += `<b>الفواتير بانتظار السداد:</b>\n\n`;
+    text += `<b>الفواتير المستحقة للسداد:</b>\n\n`;
     for (const inv of pendingInvoices) {
-      text += `• <b>${inv.title}</b> (<b>${inv.total_amount} ⭐️ Stars</b>)\n`;
-      text += `  رقم الفاتورة: <code>${inv.invoice_number}</code>\n\n`;
-      keyboard.text(`⭐️ سداد فاتورة ${inv.invoice_number}`, `pay:inv:${inv.id}`).row();
+      text += `• <b>${inv.title}</b>: <code>${inv.total_amount} ⭐️ Stars</code> (رقم: <code>${inv.invoice_number}</code>)\n`;
+      keyboard.text(`سداد فاتورة ${inv.invoice_number}`, `pay:inv:${inv.id}`).row();
       if (settings.test_mode) {
-        keyboard.text(`🧪 سداد تجريبي (Sandbox): ${inv.invoice_number}`, `cust:test_pay:${inv.id}`).row();
+        keyboard.text(`سداد تجريبي (Sandbox): ${inv.invoice_number}`, `cust:test_pay:${inv.id}`).row();
       }
     }
   } else {
-    text += `<b>كيفية سداد الفواتير:</b>\n`;
-    text += `• أرسل <b>رقم الفاتورة</b> مباشرة في هذه المحادثة (مثال: <code>INV-XXXXXX</code>) ليظهر لك أمر الدفع فورياً.\n`;
-    text += `• أو افتح رابط الفاتورة المباشر المرسل لك لسدادها بنجوم تيليجرام في ثوانٍ معدودة. ⭐️\n`;
+    text += `<b>طرق سداد الفواتير:</b>\n`;
+    text += `• أرسل رقم الفاتورة في المحادثة مباشرة (مثال: <code>INV-XXXXXX</code>) لعرض نموذج الدفع.\n`;
+    text += `• أو افتح رابط الفاتورة المباشر المرسل لك للسداد بنجوم تيليجرام.\n`;
   }
 
   // Support link button if configured
   if (settings.support_username) {
     const cleanSupport = settings.support_username.replace('@', '');
-    keyboard.url('💬 الدعم والمساعدة', `https://t.me/${cleanSupport}`).row();
+    keyboard.url('الدعم والمساعدة', `https://t.me/${cleanSupport}`).row();
   }
 
   // Dual-mode Admin Switch button (Visible to all, protected for owner only)
-  keyboard.text('⚙️ لوحة الإدارة', 'admin:main_menu');
+  keyboard.text('لوحة الإدارة', 'admin:main_menu');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(async () => {

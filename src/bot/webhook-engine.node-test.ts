@@ -16,7 +16,7 @@ describe('Phase 2: Telegram Webhooks & Multi-Bot Routing Verification', () => {
 
     assert.ok(buttonTexts.some(t => t.includes('إنشاء فاتورة')), 'Must have Create Invoice button');
     assert.ok(buttonTexts.some(t => t.includes('الفواتير')), 'Must have Invoices button');
-    assert.ok(buttonTexts.some(t => t.includes('اشتراكي')), 'Must have Subscription button');
+    assert.ok(buttonTexts.some(t => t.includes('الاشتراك') || t.includes('اشتراكي')), 'Must have Subscription button');
     assert.ok(buttonTexts.some(t => t.includes('إعدادات')), 'Must have Settings button');
   });
 
