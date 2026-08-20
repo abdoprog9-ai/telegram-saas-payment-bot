@@ -10,17 +10,21 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
   const from = ctx.from;
   if (!from) return;
 
-  // 1. Upsert customer in database
-  await supabase
-    .from('customers')
-    .upsert({
-      merchant_id: merchantId,
-      telegram_user_id: from.id,
-      username: from.username || null,
-      first_name: from.first_name || null,
-      last_name: from.last_name || null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'merchant_id,telegram_user_id' });
+  // 1. Upsert customer in database safely
+  try {
+    await supabase
+      .from('customers')
+      .upsert({
+        merchant_id: merchantId,
+        telegram_user_id: from.id,
+        username: from.username || null,
+        first_name: from.first_name || null,
+        last_name: from.last_name || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'merchant_id,telegram_user_id' });
+  } catch (err: any) {
+    console.warn('[renderCustomerHome] Customer upsert note:', err?.message);
+  }
 
   // 2. Fetch merchant settings and pending invoices for this customer
   const [settings, pendingInvoicesRes] = await Promise.all([

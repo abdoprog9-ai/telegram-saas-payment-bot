@@ -95,6 +95,11 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
   // Initialize lightweight GrammY bot instance
   const bot = new Bot(decryptedToken);
 
+  // Attach error handler to prevent unhandled rejections
+  bot.catch((err) => {
+    console.error(`❌ [Merchant Bot @${botRecord.bot_username}] Error handling update:`, err.error || err);
+  });
+
   // Setup Routing & Persona Middlewares
   bot.use(async (ctx: Context, next) => {
     const fromId = ctx.from?.id;
@@ -129,8 +134,8 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     const botUsername = (ctx as any).botUsername;
     const botId = (ctx as any).botId;
 
-    // --- Direct Admin Shortcut ---
-    if (matchText === 'admin' && isAdmin) {
+    // --- Direct Admin Shortcut (or if merchant owner sends /start without payload) ---
+    if ((matchText === 'admin' || !matchText) && isAdmin) {
       await renderAdminDashboard(ctx, merchantId, botUsername);
       return;
     }
@@ -462,13 +467,11 @@ export async function processTelegramWebhookUpdate(
     throw new Error('UNAUTHORIZED_WEBHOOK_SECRET');
   }
 
-  const supabase = getSupabase();
-
   // 1. Get or create bot instance
   const { botRecord, botInstance } = await getOrCreateBotInstance(botId);
 
   // 2. Security Check: Validate Secret Token Header
-  if (incomingSecretToken !== botRecord.webhook_secret) {
+  if (botRecord.webhook_secret && incomingSecretToken !== botRecord.webhook_secret) {
     logger.warn({ botId }, '🚨 Unauthorized webhook invocation: secret_token mismatch');
     throw new Error('UNAUTHORIZED_WEBHOOK_SECRET');
   }
@@ -486,6 +489,7 @@ export async function processTelegramWebhookUpdate(
   // 4. Idempotency Check: Prevent duplicate processing of the same update_id
   const updateId = update?.update_id;
   if (updateId) {
+    const supabase = getSupabase();
     const { error: insertError } = await supabase.from('webhook_events').insert({
       bot_id: botId,
       update_id: updateId,
@@ -493,8 +497,11 @@ export async function processTelegramWebhookUpdate(
     });
 
     if (insertError) {
-      logger.debug({ botId, updateId }, 'Ignoring duplicate webhook update_id');
-      return { processed: true, reason: 'DUPLICATE_IDEMPOTENT_IGNORE' };
+      if (insertError.code === '23505') {
+        logger.debug({ botId, updateId }, 'Ignoring duplicate webhook update_id');
+        return { processed: true, reason: 'DUPLICATE_IDEMPOTENT_IGNORE' };
+      }
+      logger.warn({ botId, err: insertError.message }, 'Webhook events logging notice');
     }
   }
 
