@@ -64,16 +64,23 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
 
   const supabase = getSupabase();
 
-  // Fetch bot along with merchant and owner's telegram ID
-  const { data: botRecord, error } = await supabase
+  // 1. Fetch bot record directly
+  const { data: botRecord, error: botError } = await supabase
     .from('telegram_bots')
-    .select('*, merchants!inner(user_id, status, users!inner(telegram_user_id))')
+    .select('*')
     .eq('id', botId)
     .single();
 
-  if (error || !botRecord) {
-    throw new Error(`Bot record not found for id: ${botId}`);
+  if (botError || !botRecord) {
+    throw new Error(`Bot record not found for id: ${botId}: ${botError?.message}`);
   }
+
+  // 2. Fetch merchant and user details safely
+  const { data: merchant } = await supabase
+    .from('merchants')
+    .select('*, users(*)')
+    .eq('id', botRecord.merchant_id)
+    .maybeSingle();
 
   const decryptedToken = decryptToken({
     encryptedText: botRecord.encrypted_token,
@@ -81,7 +88,9 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     authTag: botRecord.token_auth_tag,
   });
 
-  const merchantTelegramId = botRecord.merchants?.users?.telegram_user_id ?? null;
+  const userObj = (merchant as any)?.users;
+  const merchantTelegramId = (Array.isArray(userObj) ? userObj[0]?.telegram_user_id : userObj?.telegram_user_id) ?? null;
+  const merchantStatus = merchant?.status ?? 'active';
 
   // Initialize lightweight GrammY bot instance
   const bot = new Bot(decryptedToken);
@@ -98,7 +107,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     (ctx as any).botUsername = botRecord.bot_username;
 
     // Check if Bot or Merchant is Suspended
-    if (botRecord.status === 'disabled' || botRecord.merchants?.status === 'suspended') {
+    if (botRecord.status === 'disabled' || merchantStatus === 'suspended') {
       if (isAdmin && ctx.message?.text === '/admin') {
         // Allow admin to open dashboard to see suspension status & link to Platform Bot
       } else {
