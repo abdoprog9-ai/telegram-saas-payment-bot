@@ -56,6 +56,20 @@ export async function getPlatformBot(): Promise<Bot | null> {
 }
 
 /**
+ * Resolves the Platform Bot Username dynamically
+ */
+export async function getPlatformBotUsername(): Promise<string> {
+  if (process.env.PLATFORM_BOT_USERNAME && process.env.PLATFORM_BOT_USERNAME.trim().length > 0) {
+    return process.env.PLATFORM_BOT_USERNAME.replace('@', '').trim();
+  }
+  const bot = await getPlatformBot();
+  if (bot && bot.botInfo?.username) {
+    return bot.botInfo.username;
+  }
+  return 'PlatformPaymentBot';
+}
+
+/**
  * Configures commands, menus, SuperAdmin panel, subscriptions & payments for the Platform Main Bot
  */
 function setupPlatformBotHandlers(bot: Bot) {

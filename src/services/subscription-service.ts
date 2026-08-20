@@ -121,11 +121,14 @@ export async function addBonusCredits(merchantId: string, credits: number): Prom
 
   const shouldResetAlertFlag = available >= 10;
 
+  const newExpiry = new Date(Date.now() + 30 * 86400000).toISOString();
+
   const { data: updatedUsage, error } = await supabase
     .from('usage')
     .update({
       bonus_credits: newBonus,
       low_balance_alert_sent: shouldResetAlertFlag ? false : undefined,
+      cycle_reset_at: newExpiry,
       updated_at: new Date().toISOString(),
     })
     .eq('merchant_id', merchantId)
@@ -135,6 +138,16 @@ export async function addBonusCredits(merchantId: string, credits: number): Prom
   if (error || !updatedUsage) {
     throw new Error(`Failed to add bonus credits: ${error?.message}`);
   }
+
+  // Extend subscription active status and expiry for 30 days
+  await supabase
+    .from('subscriptions')
+    .update({
+      status: 'active',
+      expires_at: newExpiry,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('merchant_id', merchantId);
 
   return updatedUsage;
 }
