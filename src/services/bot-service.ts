@@ -245,7 +245,7 @@ export async function syncAllMerchantBotWebhooks(appBaseUrl?: string): Promise<n
         authTag: bot.token_auth_tag,
       });
 
-      const webhookUrl = `${formattedBaseUrl}/api/v1/telegram/webhook/${bot.id}`;
+      const webhookUrl = `${formattedBaseUrl.replace(/\/+$/, '')}/api/v1/telegram/webhook/${bot.id}`;
       await configureTelegramWebhook(rawToken, webhookUrl, bot.webhook_secret);
 
       if (bot.status !== 'active') {
@@ -259,4 +259,80 @@ export async function syncAllMerchantBotWebhooks(appBaseUrl?: string): Promise<n
   }
 
   return count;
+}
+
+/**
+ * Queries Telegram API getWebhookInfo to diagnose bot webhook health
+ */
+export async function getBotWebhookInfo(botId: string, merchantId: string): Promise<any> {
+  const supabase = getSupabase();
+  const { data: bot, error } = await supabase
+    .from('telegram_bots')
+    .select('*')
+    .eq('id', botId)
+    .eq('merchant_id', merchantId)
+    .single();
+
+  if (error || !bot) {
+    throw new Error('البوت غير موجود.');
+  }
+
+  const rawToken = decryptToken({
+    encryptedText: bot.encrypted_token,
+    iv: bot.token_iv,
+    authTag: bot.token_auth_tag,
+  });
+
+  const res = await fetch(`https://api.telegram.org/bot${rawToken}/getWebhookInfo`);
+  const data = await res.json() as any;
+
+  return {
+    botUsername: bot.bot_username,
+    telegramData: data?.result || data,
+  };
+}
+
+/**
+ * Manually forces re-registering and activating the webhook for a specific bot
+ */
+export async function reconnectBotWebhook(botId: string, merchantId: string, appBaseUrl?: string): Promise<{ success: boolean; webhookUrl: string; botUsername: string }> {
+  const url = appBaseUrl || process.env.APP_BASE_URL;
+  if (!url) {
+    throw new Error('لم يتم ضبط رابط المنصة APP_BASE_URL في ملف .env على السيرفر.');
+  }
+
+  const formattedBaseUrl = url.startsWith('http://') || url.startsWith('https://')
+    ? url
+    : `https://${url}`;
+
+  const cleanBaseUrl = formattedBaseUrl.replace(/\/+$/, '');
+
+  const supabase = getSupabase();
+  const { data: bot, error } = await supabase
+    .from('telegram_bots')
+    .select('*')
+    .eq('id', botId)
+    .eq('merchant_id', merchantId)
+    .single();
+
+  if (error || !bot) {
+    throw new Error('البوت غير موجود أو لا تملك صلاحية إدارته.');
+  }
+
+  const rawToken = decryptToken({
+    encryptedText: bot.encrypted_token,
+    iv: bot.token_iv,
+    authTag: bot.token_auth_tag,
+  });
+
+  const webhookUrl = `${cleanBaseUrl}/api/v1/telegram/webhook/${bot.id}`;
+  await configureTelegramWebhook(rawToken, webhookUrl, bot.webhook_secret);
+
+  await supabase.from('telegram_bots').update({ status: 'active', last_error_message: null }).eq('id', bot.id);
+
+  return {
+    success: true,
+    webhookUrl,
+    botUsername: bot.bot_username,
+  };
 }

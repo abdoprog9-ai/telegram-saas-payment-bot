@@ -1,6 +1,6 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
-import { registerBot, unlinkBot } from '../services/bot-service.js';
+import { registerBot, unlinkBot, getBotWebhookInfo, reconnectBotWebhook } from '../services/bot-service.js';
 import { invalidateBotCache } from './bot-engine.js';
 import {
   addBonusCredits,
@@ -826,11 +826,14 @@ function setupPlatformBotHandlers(bot: Bot) {
       text += `• <b>@${b.bot_username}</b> [${statusBadge}]\n`;
       text += `  معرف البوت: <code>${b.telegram_bot_id}</code> | تاريخ الربط: <code>${linkDate}</code>\n\n`;
 
-      keyboard.url(`🔗 فتح @${b.bot_username}`, `https://t.me/${b.bot_username}`);
+      keyboard
+        .url(`🔗 فتح @${b.bot_username}`, `https://t.me/${b.bot_username}`)
+        .text(`⚡ تفعيل الويب هوك`, `plat:reconnect_wh:${b.id}`)
+        .text(`🔍 فحص`, `plat:check_wh:${b.id}`)
+        .row();
     }
 
     keyboard
-      .row()
       .text('🗑️ فصل ربط بوت معين', 'platform:unlink_picker')
       .row()
       .text('🤖 ربط بوت إضافي', 'platform:link_bot')
@@ -848,6 +851,70 @@ function setupPlatformBotHandlers(bot: Bot) {
     const fromId = ctx.from?.id;
     if (!fromId) return;
     await renderMyBotsView(ctx, fromId);
+  });
+
+  // Reconnect / Force Activate Webhook Handler
+  bot.callbackQuery(/^plat:reconnect_wh:(.+)$/, async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    const botId = ctx.match?.[1];
+    if (!fromId || !botId) return;
+
+    const supabase = getSupabase();
+    const { data: user } = await supabase.from('users').select('id').eq('telegram_user_id', fromId).maybeSingle();
+    const { data: merchant } = user ? await supabase.from('merchants').select('id').eq('user_id', user.id).maybeSingle() : { data: null };
+    if (!merchant) return;
+
+    try {
+      const res = await reconnectBotWebhook(botId, merchant.id);
+      invalidateBotCache(botId);
+      await ctx.answerCallbackQuery({ text: `✅ تم تفعيل الويب هوك للبوت @${res.botUsername} بنجاح!` });
+    } catch (err: any) {
+      await ctx.answerCallbackQuery({ text: `⚠️ تعذر تفعيل الويب هوك: ${err?.message}` });
+    }
+
+    await renderMyBotsView(ctx, fromId);
+  });
+
+  // Check / Diagnose Webhook Health Handler
+  bot.callbackQuery(/^plat:check_wh:(.+)$/, async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    const botId = ctx.match?.[1];
+    if (!fromId || !botId) return;
+
+    const supabase = getSupabase();
+    const { data: user } = await supabase.from('users').select('id').eq('telegram_user_id', fromId).maybeSingle();
+    const { data: merchant } = user ? await supabase.from('merchants').select('id').eq('user_id', user.id).maybeSingle() : { data: null };
+    if (!merchant) return;
+
+    try {
+      const info = await getBotWebhookInfo(botId, merchant.id);
+      const tg = info.telegramData || {};
+
+      let diagText =
+        `🔍 <b>تقرير فحص اتصال البوت | @${info.botUsername}</b>\n\n` +
+        `• رابط الويب هوك المسجل في تيليجرام:\n<code>${tg.url || 'غير مفعل (لا يوجد رابط)'}</code>\n\n` +
+        `• التحديثات المعلقة: <code>${tg.pending_update_count ?? 0}</code>\n` +
+        `• شهادة SSL المخصصة: <code>${tg.has_custom_certificate ? 'نعم' : 'لا (تلقائية)'}</code>\n`;
+
+      if (tg.last_error_message) {
+        diagText += `\n🚨 <b>آخر خطأ تم الإبلاغ عنه من تيليجرام:</b>\n<code>${tg.last_error_message}</code>\n`;
+        if (tg.last_error_date) {
+          diagText += `تاريخ الخطأ: <code>${new Date(tg.last_error_date * 1000).toLocaleString('ar-EG')}</code>\n`;
+        }
+      } else {
+        diagText += `\n✅ <b>حالة الاتصال: ممتاز وبلا أي أخطاء مسجلة من تيليجرام.</b>\n`;
+      }
+
+      const kb = new InlineKeyboard()
+        .text('⚡ إعادة تفعيل الويب هوك وتحديثه', `plat:reconnect_wh:${botId}`)
+        .row()
+        .text('🔙 قائمة البوتات', 'platform:my_bots');
+
+      await ctx.editMessageText(diagText, { parse_mode: 'HTML', reply_markup: kb });
+    } catch (err: any) {
+      await ctx.answerCallbackQuery({ text: `⚠️ تعذر فحص البوت: ${err?.message}` });
+      await renderMyBotsView(ctx, fromId);
+    }
   });
 
   // 13. Dedicated Unlink Bot Picker Screen
