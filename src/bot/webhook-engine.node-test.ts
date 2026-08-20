@@ -8,13 +8,12 @@ describe('Phase 2: Telegram Webhooks & Multi-Bot Routing Verification', () => {
     const keyboard = buildAdminMainMenu();
     const inline = keyboard.inline_keyboard;
 
-    assert.ok(inline.length >= 3, 'Admin keyboard must have multiple rows');
+    assert.ok(inline.length >= 2, 'Admin keyboard must have multiple rows');
     
-    // Check for Create Invoice, Invoices, Subscription, Settings
+    // Check for Invoices, Subscription, Settings
     const allButtons = inline.flat();
     const buttonTexts = allButtons.map(b => b.text);
 
-    assert.ok(buttonTexts.some(t => t.includes('إنشاء فاتورة')), 'Must have Create Invoice button');
     assert.ok(buttonTexts.some(t => t.includes('الفواتير')), 'Must have Invoices button');
     assert.ok(buttonTexts.some(t => t.includes('الاشتراك') || t.includes('اشتراكي')), 'Must have Subscription button');
     assert.ok(buttonTexts.some(t => t.includes('إعدادات')), 'Must have Settings button');

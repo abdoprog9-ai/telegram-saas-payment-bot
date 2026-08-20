@@ -27,7 +27,6 @@ export async function getMerchantSettings(merchantId: string): Promise<MerchantS
     support_username: null,
     invoice_expiry_hours: 0,
     notify_on_payment: true,
-    test_mode: true,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -39,7 +38,6 @@ export async function getMerchantSettings(merchantId: string): Promise<MerchantS
         merchant_id: merchantId,
         invoice_expiry_hours: 0,
         notify_on_payment: true,
-        test_mode: true,
       })
       .select()
       .maybeSingle();

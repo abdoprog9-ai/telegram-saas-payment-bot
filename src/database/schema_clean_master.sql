@@ -43,7 +43,6 @@ CREATE TABLE IF NOT EXISTS merchant_settings (
     support_username TEXT,
     invoice_expiry_hours INT DEFAULT 0,
     notify_on_payment BOOLEAN DEFAULT true,
-    test_mode BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -147,7 +146,6 @@ CREATE TABLE IF NOT EXISTS invoices (
     total_amount INT NOT NULL,
     status VARCHAR(50) DEFAULT 'pending' 
         CHECK (status IN ('pending', 'paid', 'cancelled', 'deleted', 'refunded', 'expired')),
-    is_test BOOLEAN DEFAULT false,
     expires_at TIMESTAMPTZ,
     paid_at TIMESTAMPTZ,
     deleted_at TIMESTAMPTZ,
@@ -165,7 +163,6 @@ CREATE TABLE IF NOT EXISTS payments (
     amount INT NOT NULL,
     currency VARCHAR(10) DEFAULT 'XTR',
     status VARCHAR(50) DEFAULT 'successful',
-    is_test BOOLEAN DEFAULT false,
     raw_payload JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

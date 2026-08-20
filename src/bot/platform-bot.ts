@@ -131,22 +131,33 @@ function setupPlatformBotHandlers(bot: Bot) {
       return;
     }
 
-    let text = 
-      `<b>منصة Telegram SaaS Payments</b>\n\n` +
-      `المنصة السحابية المتكاملة لربط بوتات الفواتير والمدفوعات واستقبال نجوم تيليجرام (Telegram Stars) بدون أي تعقيدات.\n\n` +
-      `<b>الخيارات المتاحة:</b>\n` +
-      `• ربط بوت جديد وتفعيله فورياً\n` +
-      `• استعراض البوتات المربوطة وإدارتها أو فصل ربطها\n` +
-      `• الخطط والاشتراكات الشهرية وشحن الرصيد`;
+    // Fetch live platform-wide KPIs
+    let paidCount = 0;
+    let totalStars = 0;
+    let activeBotsCount = 0;
+
+    try {
+      const [paymentsRes, botsRes] = await Promise.all([
+        supabase.from('payments').select('amount', { count: 'exact' }).eq('status', 'successful'),
+        supabase.from('telegram_bots').select('id', { count: 'exact' }).eq('status', 'active'),
+      ]);
+      paidCount = paymentsRes.count || 0;
+      totalStars = paymentsRes.data?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+      activeBotsCount = botsRes.count || 0;
+    } catch {}
+
+    const text =
+      `🌟 <b>منصة Telegram SaaS Payments</b>\n\n` +
+      `المنصة السحابية المتكاملة لإنشاء الفواتير واستقبال مدفوعات نجوم تيليجرام (Telegram Stars) مباشرة وبأعلى سرعة وأمان.\n\n` +
+      `📊 <b>إحصائيات عامة للمنصة:</b>\n` +
+      `• الفواتير المسددة: <b>${paidCount.toLocaleString('ar-EG')}</b> فاتورة\n` +
+      `• الإيرادات المحصلة: <b>${totalStars.toLocaleString('ar-EG')} ⭐️ Stars</b>\n` +
+      `• البوتات النشطة: <b>${activeBotsCount.toLocaleString('ar-EG')}</b> بوت\n\n` +
+      `اختر من القائمة أدناه:`;
 
     const keyboard = new InlineKeyboard()
-      .text('🤖 ربط / تفعيل بوت جديد', 'platform:link_bot')
-      .text('📋 بوتاتي المربوطة', 'platform:my_bots')
-      .row()
-      .text('💎 الخطط والاشتراكات وشحن الرصيد', 'platform:plans')
-      .text('📜 الشروط والسياسة', 'platform:terms')
-      .row()
-      .text('💬 الدعم الفني للمنصة', 'platform:support');
+      .text('🤖 بوتاتي', 'platform:my_bots')
+      .text('💎 الاشتراك والخطة', 'platform:plans');
 
     if (isSuperAdmin) {
       keyboard.row().text('👑 لوحة تحكم السوبر أدمن (إدارة المنصة)', 'platform:superadmin_main');
@@ -749,18 +760,34 @@ function setupPlatformBotHandlers(bot: Bot) {
     const from = ctx.from;
     const isSuperAdmin = from ? await checkIsSuperAdmin(from.id) : false;
 
+    // Fetch live platform-wide KPIs
+    const supabase = getSupabase();
+    let paidCount = 0;
+    let totalStars = 0;
+    let activeBotsCount = 0;
+
+    try {
+      const [paymentsRes, botsRes] = await Promise.all([
+        supabase.from('payments').select('amount', { count: 'exact' }).eq('status', 'successful'),
+        supabase.from('telegram_bots').select('id', { count: 'exact' }).eq('status', 'active'),
+      ]);
+      paidCount = paymentsRes.count || 0;
+      totalStars = paymentsRes.data?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+      activeBotsCount = botsRes.count || 0;
+    } catch {}
+
     const text =
-      `<b>منصة Telegram SaaS Payments</b>\n\n` +
-      `المنصة السحابية المتكاملة لربط بوتات الفواتير والمدفوعات واستقبال نجوم تيليجرام (Telegram Stars) بكل سهولة وأمان.`;
+      `🌟 <b>منصة Telegram SaaS Payments</b>\n\n` +
+      `المنصة السحابية المتكاملة لإنشاء الفواتير واستقبال مدفوعات نجوم تيليجرام (Telegram Stars) مباشرة وبأعلى سرعة وأمان.\n\n` +
+      `📊 <b>إحصائيات عامة للمنصة:</b>\n` +
+      `• الفواتير المسددة: <b>${paidCount.toLocaleString('ar-EG')}</b> فاتورة\n` +
+      `• الإيرادات المحصلة: <b>${totalStars.toLocaleString('ar-EG')} ⭐️ Stars</b>\n` +
+      `• البوتات النشطة: <b>${activeBotsCount.toLocaleString('ar-EG')}</b> بوت\n\n` +
+      `اختر من القائمة أدناه:`;
 
     const keyboard = new InlineKeyboard()
-      .text('🤖 ربط / تفعيل بوت جديد', 'platform:link_bot')
-      .text('📋 بوتاتي المربوطة', 'platform:my_bots')
-      .row()
-      .text('💎 الخطط والاشتراكات وشحن الرصيد', 'platform:plans')
-      .text('📜 الشروط والسياسة', 'platform:terms')
-      .row()
-      .text('💬 الدعم الفني للمنصة', 'platform:support');
+      .text('🤖 بوتاتي', 'platform:my_bots')
+      .text('💎 الاشتراك والخطة', 'platform:plans');
 
     if (isSuperAdmin) {
       keyboard.row().text('👑 لوحة تحكم السوبر أدمن (إدارة المنصة)', 'platform:superadmin_main');
@@ -781,7 +808,7 @@ function setupPlatformBotHandlers(bot: Bot) {
         `📋 <b>قائمة البوتات المربوطة:</b>\n\n` +
         `<i>لا يوجد أي بوت مربوط بحسابك حتى الآن. يمكنك ربط أول بوت لك الآن بكل سهولة.</i>`;
       const kb = new InlineKeyboard()
-        .text('🤖 ربط بوت جديد', 'platform:link_bot')
+        .text('➕ ربط بوت جديد', 'platform:link_bot')
         .row()
         .text('🔙 الرئيسية', 'platform:main_menu');
 
@@ -804,7 +831,7 @@ function setupPlatformBotHandlers(bot: Bot) {
         `📋 <b>قائمة البوتات المربوطة:</b>\n\n` +
         `<i>لا يوجد أي بوت مربوط بحسابك حالياً. يمكنك ربط بوت جديد الآن.</i>`;
       const kb = new InlineKeyboard()
-        .text('🤖 ربط بوت جديد', 'platform:link_bot')
+        .text('➕ ربط بوت جديد', 'platform:link_bot')
         .row()
         .text('🔙 الرئيسية', 'platform:main_menu');
 
@@ -832,9 +859,8 @@ function setupPlatformBotHandlers(bot: Bot) {
     }
 
     keyboard
-      .text('🗑️ فصل ربط بوت معين', 'platform:unlink_picker')
-      .row()
-      .text('🤖 ربط بوت إضافي', 'platform:link_bot')
+      .text('➕ ربط بوت جديد', 'platform:link_bot')
+      .text('🗑️ فصل ربط بوت', 'platform:unlink_picker')
       .row()
       .text('🔙 الرئيسية', 'platform:main_menu');
 

@@ -37,28 +37,14 @@ export function clearAdminSession(userId: number) {
 }
 
 /**
- * Builds the Main Admin Dashboard Inline Keyboard
+ * Builds the Streamlined Main Admin Dashboard Inline Keyboard (3 Core Buttons Only)
  */
-export function buildAdminMainMenu(platformUsername?: string, merchantId?: string): InlineKeyboard {
-  const kb = new InlineKeyboard()
-    .text('إنشاء فاتورة جديدة', 'admin:create_invoice')
+export function buildAdminMainMenu(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('📄 الفواتير', 'admin:invoices')
     .row()
-    .text('سجل الفواتير', 'admin:invoices')
-    .text('الإحصائيات والتقارير', 'admin:analytics')
-    .row();
-
-  if (platformUsername && merchantId) {
-    const subUrl = `https://t.me/${platformUsername.replace('@', '')}?start=sub_${merchantId}`;
-    kb.url('شحن الرصيد / تجديد الاشتراك', subUrl).row();
-  }
-
-  kb.text('إعدادات المتجر', 'admin:settings')
-    .text('الاشتراك والرصيد', 'admin:subscription')
-    .row()
-    .text('معاينة كعميل', 'cust:home')
-    .text('تحديث', 'admin:refresh');
-
-  return kb;
+    .text('⚙️ إعدادات المتجر', 'admin:settings')
+    .text('💎 اشتراكي ورصيدي', 'admin:subscription');
 }
 
 /**
@@ -70,14 +56,12 @@ export async function renderAdminDashboard(ctx: any, merchantId: string, botUser
   if (fromId) clearAdminSession(fromId);
 
   // Parallel data fetching
-  const [usageRes, subRes, realInvoicesRes, realPaidInvoicesRes, testInvoicesRes, settings, platformUsername] = await Promise.all([
+  const [usageRes, subRes, invoicesRes, paidInvoicesRes, settings] = await Promise.all([
     supabase.from('usage').select('*').eq('merchant_id', merchantId).single(),
     supabase.from('subscriptions').select('*, plans(*)').eq('merchant_id', merchantId).single(),
-    supabase.from('invoices').select('id', { count: 'exact' }).eq('merchant_id', merchantId).eq('is_test', false).is('deleted_at', null),
-    supabase.from('invoices').select('id, total_amount').eq('merchant_id', merchantId).eq('is_test', false).eq('status', 'paid').is('deleted_at', null),
-    supabase.from('invoices').select('id', { count: 'exact' }).eq('merchant_id', merchantId).eq('is_test', true).is('deleted_at', null),
+    supabase.from('invoices').select('id', { count: 'exact' }).eq('merchant_id', merchantId).is('deleted_at', null),
+    supabase.from('invoices').select('id, total_amount').eq('merchant_id', merchantId).eq('status', 'paid').is('deleted_at', null),
     getMerchantSettings(merchantId),
-    getPlatformBotUsername(),
   ]);
 
   const usage = usageRes.data;
@@ -89,31 +73,27 @@ export async function renderAdminDashboard(ctx: any, merchantId: string, botUser
   const used = usage?.operations_used ?? 0;
   const available = Math.max(0, (base + bonus) - used);
 
-  const realTotalInvoices = realInvoicesRes.count ?? 0;
-  const realPaidList = realPaidInvoicesRes.data || [];
-  const realPaidCount = realPaidList.length;
-  const realTotalRevenue = realPaidList.reduce((acc, inv) => acc + (inv.total_amount || 0), 0);
-  const testTotalInvoices = testInvoicesRes.count ?? 0;
+  const totalInvoices = invoicesRes.count ?? 0;
+  const paidList = paidInvoicesRes.data || [];
+  const paidCount = paidList.length;
+  const totalRevenue = paidList.reduce((acc, inv) => acc + (inv.total_amount || 0), 0);
 
   const displayName = settings.business_name || `@${botUsername}`;
-  const modeBadge = settings.test_mode !== false ? '🟡 وضع الاختبار التجريبي (Sandbox)' : '🟢 وضع التشغيل المباشر (Live)';
 
-  let text =
+  const text =
     `<b>لوحة إدارة المتجر | ${displayName}</b>\n\n` +
-    `• وضع النظام: <b>${modeBadge}</b>\n` +
-    `• الخطة الحالية: <b>${planName}</b>\n` +
-    `• الرصيد المتاح: <b>${available}</b> عملية (المستهلك: <code>${used}</code>)\n` +
+    `<b>بيانات الحساب:</b>\n` +
+    `• الخطة: <b>${planName}</b>\n` +
+    `• العمليات المتاحة: <b>${available}</b> (المستهلك: <code>${used}</code>)\n` +
     `• الرصيد الإضافي: <b>${bonus}</b>\n` +
-    `• حالة الحساب: <b>${sub?.status === 'active' ? 'نشط' : 'متوقف'}</b>\n\n` +
-    `<b>المؤشرات المالية (الرسمية):</b>\n` +
-    `• الفواتير الحقيقية: <b>${realTotalInvoices}</b> (المسددة: <b>${realPaidCount}</b>)\n` +
-    `• إجمالي الإيراد المحصل: <b>${realTotalRevenue} ⭐️ Stars</b>\n`;
+    `• حالة البوت: <b>${sub?.status === 'active' ? '[🟢 نشط]' : '[🔴 متوقف]'}</b>\n\n` +
+    `<b>مؤشرات الفواتير:</b>\n` +
+    `• إجمالي الفواتير الصادرة: <b>${totalInvoices}</b>\n` +
+    `• الفواتير المسددة: <b>${paidCount}</b>\n` +
+    `• إجمالي الإيراد المحصل: <b>${totalRevenue.toLocaleString('ar-EG')} ⭐️ Stars</b>\n\n` +
+    `اختر من القائمة أدناه لإدارة فواتيرك ومتجرك:`;
 
-  if (settings.test_mode) {
-    text += `\n<i>[فواتير الساندبوكس التجريبية: ${testTotalInvoices} (معزولة بالكامل ولا تحتسب في الإيراد)]</i>\n`;
-  }
-
-  const keyboard = buildAdminMainMenu(platformUsername, merchantId);
+  const keyboard = buildAdminMainMenu();
 
   if (isRefresh && ctx.answerCallbackQuery) {
     await ctx.answerCallbackQuery({ text: 'تم تحديث البيانات' }).catch(() => {});
@@ -147,21 +127,20 @@ export async function handleInvoicesView(ctx: any, merchantId: string, botId: st
   const keyboard = new InlineKeyboard();
 
   if (!invoices || invoices.length === 0) {
-    text += `<i>لا توجد فواتير منشأة حالياً.</i>\n\n`;
+    text += `<i>لا توجد فواتير منشأة حالياً. اضغط على "إنشاء فاتورة جديدة" للبدء.</i>\n\n`;
   } else {
-    text += `اضغط على أي فاتورة لاستعراض تفاصيلها ورابط السداد:\n\n`;
+    text += `اضغط على أي فاتورة لاستعراض تفاصيلها ونسخ رابط السداد:\n\n`;
     for (const inv of invoices) {
-      const statusLabel = inv.status === 'paid' ? 'مسددة' : inv.status === 'pending' ? 'معلقة' : 'ملغاة';
-      const badge = inv.is_test ? '🟡 [تجريبية]' : '🟢 [رسمية]';
-      keyboard.text(`${badge} ${inv.invoice_number} | ${inv.title} (${inv.total_amount}⭐️) [${statusLabel}]`, `admin:view_inv:${inv.id}`).row();
+      const statusLabel = inv.status === 'paid' ? '🟢 مدفوعة' : inv.status === 'pending' ? '🟡 بانتظار السداد' : '🔴 ملغاة';
+      keyboard.text(`${inv.invoice_number} | ${inv.title} (${inv.total_amount}⭐️) [${statusLabel}]`, `admin:view_inv:${inv.id}`).row();
     }
   }
 
   keyboard
-    .text('إنشاء فاتورة جديدة', 'admin:create_invoice')
+    .text('➕ إنشاء فاتورة جديدة', 'admin:create_invoice')
     .row()
-    .text('تحديث القائمة', 'admin:invoices')
-    .text('الرئيسية', 'admin:main_menu');
+    .text('🔄 تحديث القائمة', 'admin:invoices')
+    .text('🔙 الرئيسية', 'admin:main_menu');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
@@ -184,7 +163,7 @@ export async function renderInvoiceDetail(ctx: any, invoiceId: string, merchantI
 
   if (!invoice || invoice.deleted_at) {
     const text = `عذراً، هذه الفاتورة غير موجودة أو تم حذفها مسبقاً.`;
-    const kb = new InlineKeyboard().text('سجل الفواتير', 'admin:invoices');
+    const kb = new InlineKeyboard().text('🔙 سجل الفواتير', 'admin:invoices');
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
     } else {
@@ -194,8 +173,7 @@ export async function renderInvoiceDetail(ctx: any, invoiceId: string, merchantI
   }
 
   const directPayLink = `https://t.me/${botUsername}?start=inv_${invoice.id}`;
-  const statusLabel = invoice.status === 'paid' ? 'مسددة بنجاح' : invoice.status === 'pending' ? 'بانتظار السداد' : 'ملغاة';
-  const typeBadge = invoice.is_test ? '🟡 تجريبية (Sandbox - معزولة لا تخصم رصيد ولا إيراد)' : '🟢 رسمية (Live Production)';
+  const statusLabel = invoice.status === 'paid' ? '🟢 مسددة بنجاح' : invoice.status === 'pending' ? '🟡 بانتظار السداد' : '🔴 ملغاة';
   const createdDate = new Date(invoice.created_at).toLocaleString('ar-EG');
   const paidDate = invoice.paid_at ? new Date(invoice.paid_at).toLocaleString('ar-EG') : null;
 
@@ -203,27 +181,25 @@ export async function renderInvoiceDetail(ctx: any, invoiceId: string, merchantI
     `<b>تفاصيل الفاتورة: ${invoice.invoice_number}</b>\n\n` +
     `• البيان: <b>${invoice.title}</b>\n` +
     (invoice.description ? `• التفاصيل: ${invoice.description}\n` : '') +
-    `• المبلغ: <b>${invoice.total_amount} ⭐️ Stars</b>\n` +
+    `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n` +
     `• الحالة: <b>${statusLabel}</b>\n` +
-    `• نوع الفاتورة: <b>${typeBadge}</b>\n` +
     `• تاريخ الإنشاء: <code>${createdDate}</code>\n` +
     (paidDate ? `• تاريخ السداد: <code>${paidDate}</code>\n` : '') +
-    `\n<b>رابط السداد:</b>\n<code>${directPayLink}</code>\n`;
+    `\n<b>رابط سداد الفاتورة للعميل:</b>\n<code>${directPayLink}</code>\n`;
 
   const keyboard = new InlineKeyboard()
-    .url('فتح رابط الفاتورة', directPayLink)
+    .url('🔗 فتح رابط الفاتورة', directPayLink)
     .row();
 
   if (invoice.status === 'pending') {
     keyboard
-      .text('تجربة السداد', `pay:inv:${invoice.id}`)
-      .text('إلغاء الفاتورة', `admin:del_inv:${invoice.id}`)
+      .text('❌ إلغاء الفاتورة', `admin:del_inv:${invoice.id}`)
       .row();
   }
 
   keyboard
-    .text('سجل الفواتير', 'admin:invoices')
-    .text('الرئيسية', 'admin:main_menu');
+    .text('🔙 سجل الفواتير', 'admin:invoices')
+    .text('🔙 الرئيسية', 'admin:main_menu');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
@@ -269,7 +245,7 @@ export async function startCreateInvoiceWizard(ctx: any, merchantId: string, bot
     `<b>إنشاء فاتورة جديدة (1/2):</b>\n\n` +
     `أدخل عنوان أو بيان الفاتورة (مثال: اشتراك شهر / استشارة / خدمة تطوير):`;
 
-  const keyboard = new InlineKeyboard().text('إلغاء', 'admin:cancel_wizard');
+  const keyboard = new InlineKeyboard().text('❌ إلغاء', 'admin:cancel_wizard');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -297,7 +273,6 @@ export async function handleSettingsView(ctx: any, merchantId: string, botUserna
       ? '7 أيام'
       : 'بلا انتهاء';
   const notifyStatus = settings.notify_on_payment !== false ? 'مفعلة' : 'متوقفة';
-  const testModeStatus = settings.test_mode !== false ? '🟡 مفعّل (Sandbox)' : '🟢 معطّل (Live)';
 
   const text =
     `<b>إعدادات المتجر والفواتير:</b>\n\n` +
@@ -306,8 +281,7 @@ export async function handleSettingsView(ctx: any, merchantId: string, botUserna
     `• رسالة ما بعد الدفع: <b>${thankyouMsg}</b>\n` +
     `• يوزر الدعم الفني: <b>${supportUser}</b>\n` +
     `• صلاحية الفواتير: <b>${expiryLabel}</b>\n` +
-    `• إشعارات السداد: <b>${notifyStatus}</b>\n` +
-    `• وضع الاختبار: <b>${testModeStatus}</b>\n\n` +
+    `• إشعارات السداد: <b>${notifyStatus}</b>\n\n` +
     `اختر القسم المطلوب لتعديله:`;
 
   const keyboard = new InlineKeyboard()
@@ -320,9 +294,7 @@ export async function handleSettingsView(ctx: any, merchantId: string, botUserna
     .text(`صلاحية الفواتير: ${expiryLabel}`, 'admin:set:expiry_menu')
     .text(`إشعارات السداد: ${notifyStatus}`, 'admin:set:toggle_notify')
     .row()
-    .text(`وضع الاختبار: ${settings.test_mode !== false ? '🟡 مفعّل (Sandbox)' : '🟢 معطّل (Live)'}`, 'admin:set:toggle_test_mode')
-    .row()
-    .text('الرئيسية', 'admin:main_menu');
+    .text('🔙 الرئيسية', 'admin:main_menu');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
@@ -347,7 +319,7 @@ export async function renderExpirySelectionMenu(ctx: any, merchantId: string) {
     .row()
     .text('7 أيام', 'admin:set_exp:168')
     .row()
-    .text('عودة للإعدادات', 'admin:settings');
+    .text('🔙 عودة للإعدادات', 'admin:settings');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -483,9 +455,6 @@ export async function handleAdminWizardTextInput(ctx: any, session: AdminSession
     clearAdminSession(fromId);
 
     try {
-      const settings = await getMerchantSettings(merchantId);
-      const isTestMode = settings.test_mode !== false;
-
       const invoice = await createInvoice({
         merchantId,
         botId,
@@ -493,27 +462,23 @@ export async function handleAdminWizardTextInput(ctx: any, session: AdminSession
         description: undefined,
         totalAmount: amount,
         currency: 'XTR',
-        isTest: isTestMode,
       });
 
       const directPayLink = `https://t.me/${botUsername}?start=inv_${invoice.id}`;
 
-      let successText =
-        `<b>تم إنشاء الفاتورة بنجاح</b>\n\n` +
+      const successText =
+        `🎉 <b>تم إنشاء الفاتورة بنجاح</b>\n\n` +
         `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
         `• البيان: <b>${invoice.title}</b>\n` +
-        `• المبلغ: <b>${invoice.total_amount} ⭐️ Stars</b>\n` +
-        `• النوع: <b>${isTestMode ? '🟡 تجريبية Sandbox (لم يتم خصم رصيد)' : '🟢 رسمية'}</b>\n\n` +
-        `<b>رابط السداد:</b>\n` +
+        `• المبلغ: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+        `<b>رابط سداد الفاتورة للعميل:</b>\n` +
         `<code>${directPayLink}</code>\n`;
 
       const kb = new InlineKeyboard()
-        .url('فتح رابط الفاتورة', directPayLink)
+        .url('🔗 فتح رابط الفاتورة', directPayLink)
         .row()
-        .text('تجربة السداد', `pay:inv:${invoice.id}`)
-        .row()
-        .text('سجل الفواتير', 'admin:invoices')
-        .text('الرئيسية', 'admin:main_menu');
+        .text('📄 سجل الفواتير', 'admin:invoices')
+        .text('🔙 الرئيسية', 'admin:main_menu');
 
       await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: kb });
     } catch (err: any) {
@@ -592,17 +557,17 @@ export async function handleSubscriptionView(ctx: any, merchantId: string) {
     `• العمليات المستهلكة: <code>${used}</code> عملية\n` +
     `• <b>الرصيد المتاح حالياً:</b> <b>${available}</b> عملية\n` +
     `• تاريخ انتهاء الدورة / التجديد: <code>${resetDate}</code>\n` +
-    `• حالة الاشتراك: <b>${sub?.status === 'active' ? 'نشط' : 'متوقف'}</b>\n\n` +
+    `• حالة الاشتراك: <b>${sub?.status === 'active' ? '[🟢 نشط]' : '[🔴 متوقف]'}</b>\n\n` +
     `<i>ملاحظة: شحن أي رصيد إضافي يمنحك صلاحية شهر كامل (30 يوماً) من تاريخ الشحن.</i>`;
 
   const subLink = `https://t.me/${platformUsername.replace('@', '')}?start=sub_${merchantId}`;
 
   const keyboard = new InlineKeyboard()
-    .url('شحن رصيد / ترقية الباقة (30 يوماً)', subLink)
+    .url('💎 شحن الرصيد / تجديد الاشتراك', subLink)
     .row()
-    .text('تحديث الرصيد', 'admin:subscription')
+    .text('🔄 تحديث الرصيد', 'admin:subscription')
     .row()
-    .text('الرئيسية', 'admin:main_menu');
+    .text('🔙 الرئيسية', 'admin:main_menu');
 
   if (ctx.callbackQuery) {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
