@@ -213,3 +213,50 @@ export async function unlinkBot(botId: string, merchantId: string): Promise<{ su
 
   return { success: true, botUsername: bot.bot_username };
 }
+
+/**
+ * Automatically syncs and configures Telegram webhooks for all connected bots in database
+ */
+export async function syncAllMerchantBotWebhooks(appBaseUrl?: string): Promise<number> {
+  const url = appBaseUrl || process.env.APP_BASE_URL;
+  if (!url) {
+    console.warn('⚠️ [Webhooks] APP_BASE_URL is not configured in .env! Merchant bots will not receive webhook updates.');
+    return 0;
+  }
+
+  const formattedBaseUrl = url.startsWith('http://') || url.startsWith('https://')
+    ? url
+    : `https://${url}`;
+
+  const supabase = getSupabase();
+  const { data: bots } = await supabase
+    .from('telegram_bots')
+    .select('*')
+    .neq('status', 'disabled');
+
+  if (!bots || bots.length === 0) return 0;
+
+  let count = 0;
+  for (const bot of bots) {
+    try {
+      const rawToken = decryptToken({
+        encryptedText: bot.encrypted_token,
+        iv: bot.token_iv,
+        authTag: bot.token_auth_tag,
+      });
+
+      const webhookUrl = `${formattedBaseUrl}/api/v1/telegram/webhook/${bot.id}`;
+      await configureTelegramWebhook(rawToken, webhookUrl, bot.webhook_secret);
+
+      if (bot.status !== 'active') {
+        await supabase.from('telegram_bots').update({ status: 'active' }).eq('id', bot.id);
+      }
+      count++;
+      console.log(`🤖 [Webhook Engine] Active webhook set for @${bot.bot_username}: ${webhookUrl}`);
+    } catch (err: any) {
+      console.warn(`⚠️ [Webhook Engine] Failed to configure webhook for @${bot.bot_username}:`, err?.message);
+    }
+  }
+
+  return count;
+}

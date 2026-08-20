@@ -7,6 +7,7 @@ if (typeof globalThis.WebSocket === 'undefined') {
 }
 
 import { buildServer } from './server.js';
+import { syncAllMerchantBotWebhooks } from './services/bot-service.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -62,6 +63,10 @@ async function main() {
       process.env.PLATFORM_BOT_TOKEN,
       process.env.PLATFORM_BOT_SECRET
     );
+
+    // Auto sync and configure webhooks for all active merchant bots
+    const syncedCount = await syncAllMerchantBotWebhooks(process.env.APP_BASE_URL);
+    app.log.info(`🤖 Synced and verified webhooks for ${syncedCount} merchant bot(s)`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
