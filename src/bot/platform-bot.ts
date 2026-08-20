@@ -1,6 +1,7 @@
 import { Bot, Context, InlineKeyboard } from 'grammy';
 import { getSupabase } from '../database/supabase.js';
 import { registerBot } from '../services/bot-service.js';
+import { invalidateBotCache } from './bot-engine.js';
 import {
   addBonusCredits,
   upgradeMerchantPlan,
@@ -525,21 +526,86 @@ function setupPlatformBotHandlers(bot: Bot) {
         const base = m.usage?.[0]?.base_operations ?? 10;
         const bonus = m.usage?.[0]?.bonus_credits ?? 0;
         const avail = Math.max(0, (base + bonus) - used);
+        const statusBadge = m.status === 'active' ? '🟢 نشط' : '🔴 متوقف';
+        const suspendActionText = m.status === 'active' ? '⏸️ إيقاف مؤقت' : '▶️ إعادة التنشيط';
 
-        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser})\n`;
+        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser}) [${statusBadge}]\n`;
         text += `  الخطة: <code>${plan}</code> | المتاح: <code>${avail}</code> (المستهلك: <code>${used}</code>)\n`;
-        text += `  الرصيد الإضافي (Bonus): <code>${bonus}</code>\n\n`;
+        text += `  الرصيد الإضافي: <code>${bonus}</code>\n\n`;
 
         keyboard
-          .text(`⚡ شحن رصيد: ${m.business_name || botUser}`, `plat:adm_cred_menu:${m.id}`)
-          .row()
-          .text(`👑 ترقية الخطة: ${m.business_name || botUser}`, `plat:adm_plan_menu:${m.id}`)
+          .text(`⚡ شحن رصيد`, `plat:adm_cred_menu:${m.id}`)
+          .text(`👑 باقة`, `plat:adm_plan_menu:${m.id}`)
+          .text(`${suspendActionText}`, `plat:adm_toggle_suspend:${m.id}`)
           .row();
       }
     }
 
     keyboard.text('🔙 عودة للوحة السوبر أدمن', 'platform:superadmin_main');
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  });
+
+  // Toggle Merchant Suspension (SuperAdmin)
+  bot.callbackQuery(/^plat:adm_toggle_suspend:(.+)$/, async (ctx: Context) => {
+    const fromId = ctx.from?.id;
+    if (!fromId || !(await checkIsSuperAdmin(fromId))) return;
+
+    const merchantId = ctx.match?.[1];
+    if (!merchantId) return;
+
+    const supabase = getSupabase();
+    const { data: merchant } = await supabase.from('merchants').select('status, business_name').eq('id', merchantId).single();
+    if (!merchant) return;
+
+    const newStatus = merchant.status === 'active' ? 'suspended' : 'active';
+    await supabase.from('merchants').update({ status: newStatus }).eq('id', merchantId);
+
+    // Invalidate bot cache so the new status applies immediately
+    const { data: bots } = await supabase.from('telegram_bots').select('id').eq('merchant_id', merchantId);
+    if (bots) {
+      for (const b of bots) {
+        invalidateBotCache(b.id);
+      }
+    }
+
+    const msg = newStatus === 'suspended' ? 'تم إيقاف حساب التاجر مؤقتاً' : 'تمت إعادة تنشيط حساب التاجر بنجاح';
+    await ctx.answerCallbackQuery({ text: msg });
+
+    // Refresh merchants list
+    const { data: merchants } = await supabase
+      .from('merchants')
+      .select('*, users(*), usage(*), telegram_bots(*), subscriptions(*, plans(*))')
+      .order('created_at', { ascending: false })
+      .limit(8);
+
+    let text = `👥 <b>قائمة المشتركين والتجار (${merchants?.length || 0}):</b>\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    if (merchants) {
+      for (const m of merchants) {
+        const botUser = m.telegram_bots?.[0]?.bot_username ? `@${m.telegram_bots[0].bot_username}` : 'بلا بوت';
+        const plan = m.subscriptions?.[0]?.plans?.name || 'Trial Starter';
+        const used = m.usage?.[0]?.operations_used ?? 0;
+        const base = m.usage?.[0]?.base_operations ?? 10;
+        const bonus = m.usage?.[0]?.bonus_credits ?? 0;
+        const avail = Math.max(0, (base + bonus) - used);
+        const statusBadge = m.status === 'active' ? '🟢 نشط' : '🔴 متوقف';
+        const suspendActionText = m.status === 'active' ? '⏸️ إيقاف مؤقت' : '▶️ إعادة التنشيط';
+
+        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser}) [${statusBadge}]\n`;
+        text += `  الخطة: <code>${plan}</code> | المتاح: <code>${avail}</code> (المستهلك: <code>${used}</code>)\n`;
+        text += `  الرصيد الإضافي: <code>${bonus}</code>\n\n`;
+
+        keyboard
+          .text(`⚡ شحن رصيد`, `plat:adm_cred_menu:${m.id}`)
+          .text(`👑 باقة`, `plat:adm_plan_menu:${m.id}`)
+          .text(`${suspendActionText}`, `plat:adm_toggle_suspend:${m.id}`)
+          .row();
+      }
+    }
+
+    keyboard.text('🔙 عودة للوحة السوبر أدمن', 'platform:superadmin_main');
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
   });
 
   // 9. SuperAdmin Credit Top-up Options (Quick Packs or Custom Input)

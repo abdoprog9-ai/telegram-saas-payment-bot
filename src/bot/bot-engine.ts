@@ -67,7 +67,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
   // Fetch bot along with merchant and owner's telegram ID
   const { data: botRecord, error } = await supabase
     .from('telegram_bots')
-    .select('*, merchants!inner(user_id, users!inner(telegram_user_id))')
+    .select('*, merchants!inner(user_id, status, users!inner(telegram_user_id))')
     .eq('id', botId)
     .single();
 
@@ -96,6 +96,16 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
     (ctx as any).merchantId = botRecord.merchant_id;
     (ctx as any).botId = botRecord.id;
     (ctx as any).botUsername = botRecord.bot_username;
+
+    // Check if Bot or Merchant is Suspended
+    if (botRecord.status === 'disabled' || botRecord.merchants?.status === 'suspended') {
+      if (isAdmin && ctx.message?.text === '/admin') {
+        // Allow admin to open dashboard to see suspension status & link to Platform Bot
+      } else {
+        await ctx.reply('عذراً، البوت متوقف مؤقتاً.');
+        return;
+      }
+    }
 
     return next();
   });

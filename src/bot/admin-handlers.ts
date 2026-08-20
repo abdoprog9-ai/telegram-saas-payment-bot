@@ -44,7 +44,7 @@ export function buildAdminMainMenu(platformUsername?: string, merchantId?: strin
     .text('إنشاء فاتورة جديدة', 'admin:create_invoice')
     .row()
     .text('سجل الفواتير', 'admin:invoices')
-    .text('التقرير المالي', 'admin:analytics')
+    .text('الإحصائيات والتقارير', 'admin:analytics')
     .row();
 
   if (platformUsername && merchantId) {
@@ -382,6 +382,8 @@ export async function handleAnalyticsView(ctx: any, merchantId: string) {
   const testPayments = payments.filter((p) => p.provider === 'test_sandbox' || p.is_test);
 
   const totalRealRevenue = realPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+  const avgInvoiceAmount = realPaidInvoices.length > 0 ? Math.round(totalRealRevenue / realPaidInvoices.length) : 0;
+  const collectionRate = realInvoices.length > 0 ? Math.round((realPaidInvoices.length / realInvoices.length) * 100) : 0;
 
   // Revenue by time (Real Stars only)
   const now = Date.now();
@@ -394,25 +396,34 @@ export async function handleAnalyticsView(ctx: any, merchantId: string) {
     .filter((p) => now - new Date(p.created_at).getTime() < 7 * dayMs)
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
+  const monthRevenue = realPayments
+    .filter((p) => now - new Date(p.created_at).getTime() < 30 * dayMs)
+    .reduce((acc, p) => acc + (p.amount || 0), 0);
+
   let text =
-    `<b>التقرير المالي وسجل العملاء:</b>\n\n` +
-    `<b>المؤشرات المالية (الرسمية):</b>\n` +
+    `<b>الإحصائيات والتقرير المالي:</b>\n\n` +
+    `<b>مؤشرات الإيرادات الرسمية (⭐️ Stars):</b>\n` +
     `• إجمالي الإيراد المحصل: <b>${totalRealRevenue} ⭐️ Stars</b>\n` +
-    `• إيراد آخر 24 ساعة: <b>${todayRevenue} ⭐️</b>\n` +
+    `• إيراد اليوم (24 ساعة): <b>${todayRevenue} ⭐️</b>\n` +
     `• إيراد آخر 7 أيام: <b>${weekRevenue} ⭐️</b>\n` +
-    `• الفواتير الحقيقية المسددة: <code>${realPaidInvoices.length}</code>\n` +
-    `• الفواتير الحقيقية المعلقة: <code>${realPendingInvoices.length}</code>\n`;
+    `• إيراد آخر 30 يوماً: <b>${monthRevenue} ⭐️</b>\n` +
+    `• متوسط قيمة الفاتورة: <b>${avgInvoiceAmount} ⭐️</b>\n\n` +
+    `<b>مؤشرات أداء الفواتير الحقيقية:</b>\n` +
+    `• إجمالي الفواتير الصادرة: <code>${realInvoices.length}</code>\n` +
+    `• الفواتير المسددة: <code>${realPaidInvoices.length}</code>\n` +
+    `• الفواتير المعلقة: <code>${realPendingInvoices.length}</code>\n` +
+    `• نسبة التحصيل: <b>${collectionRate}%</b>\n`;
 
   if (testInvoices.length > 0 || testPayments.length > 0) {
     const testVol = testPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
-    text += `\n<b>بيانات الاختبار (Sandbox):</b>\n`;
-    text += `• فواتير الاختبار: <code>${testInvoices.length}</code>\n` +
+    text += `\n<b>إحصائيات وضع الاختبار (Sandbox):</b>\n`;
+    text += `• فواتير التجربة: <code>${testInvoices.length}</code>\n` +
             `• عمليات السداد التجريبية: <code>${testPayments.length}</code> (بقيمة: <code>${testVol}⭐️</code> تجريبية)\n`;
   }
 
-  text += `\n<b>سجل العملاء (${customers.length}):</b>\n`;
+  text += `\n<b>سجل أحدث العملاء (${customers.length}):</b>\n`;
   if (customers.length === 0) {
-    text += `<i>لا يوجد عملاء حتى الآن.</i>\n`;
+    text += `<i>لا يوجد عملاء مسجلين حتى الآن.</i>\n`;
   } else {
     for (const c of customers) {
       const name = c.first_name || 'عميل';
@@ -422,7 +433,7 @@ export async function handleAnalyticsView(ctx: any, merchantId: string) {
   }
 
   const keyboard = new InlineKeyboard()
-    .text('تحديث التقرير', 'admin:analytics')
+    .text('تحديث الإحصائيات', 'admin:analytics')
     .row()
     .text('الرئيسية', 'admin:main_menu');
 

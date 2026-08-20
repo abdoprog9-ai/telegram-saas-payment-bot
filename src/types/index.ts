@@ -2,10 +2,52 @@ export type UserRole = 'superadmin' | 'merchant';
 export type MerchantStatus = 'active' | 'suspended' | 'cancelled';
 export type SubscriptionStatus = 'active' | 'expired' | 'grace_period';
 export type BotStatus = 'connected' | 'active' | 'token_invalid' | 'disabled' | 'webhook_error';
-export type ProductType = 'code' | 'file' | 'content';
 export type InvoiceStatus = 'pending' | 'paid' | 'cancelled' | 'deleted' | 'refunded' | 'expired';
-export type OrderStatus = 'pending' | 'paid' | 'processing' | 'completed' | 'cancelled' | 'refunded';
 export type PaymentStatus = 'successful' | 'failed' | 'refunded';
+export type ProductType = 'digital_code' | 'service' | 'file' | 'content' | 'code';
+export type OrderStatus = 'pending' | 'paid' | 'delivered' | 'failed' | 'cancelled';
+
+export interface Product {
+  id: string;
+  merchant_id: string;
+  bot_id: string;
+  name: string;
+  description?: string | null;
+  price_stars: number;
+  product_type: ProductType;
+  file_url?: string | null;
+  content_data?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+}
+
+export interface DigitalProductCode {
+  id: string;
+  product_id: string;
+  merchant_id: string;
+  code_value: string;
+  is_used: boolean;
+  used_at?: string | null;
+  order_id?: string | null;
+  created_at: string;
+}
+
+export interface Order {
+  id: string;
+  merchant_id: string;
+  bot_id: string;
+  customer_id: string;
+  product_id: string;
+  invoice_id: string;
+  amount: number;
+  currency: string;
+  status: OrderStatus;
+  delivered_code_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface User {
   id: string; // UUID v4
@@ -35,7 +77,7 @@ export interface MerchantSettings {
   support_username?: string | null;
   invoice_expiry_hours?: number;
   notify_on_payment?: boolean;
-  test_mode?: boolean;
+  test_mode?: boolean; // Single toggle for Live vs Sandbox
   created_at: string;
   updated_at: string;
 }
@@ -48,7 +90,6 @@ export interface Plan {
   price_stars: number;
   max_bots: number;
   included_operations: number;
-  max_products: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -106,33 +147,6 @@ export interface Customer {
   updated_at: string;
 }
 
-export interface Product {
-  id: string;
-  merchant_id: string;
-  bot_id: string;
-  name: string;
-  description?: string | null;
-  price_stars: number;
-  product_type: ProductType;
-  file_url?: string | null;
-  content_data?: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  deleted_at?: string | null;
-}
-
-export interface DigitalProductCode {
-  id: string;
-  product_id: string;
-  merchant_id: string;
-  code_value: string;
-  is_used: boolean;
-  used_at?: string | null;
-  order_id?: string | null;
-  created_at: string;
-}
-
 export interface Invoice {
   id: string;
   merchant_id: string;
@@ -144,25 +158,10 @@ export interface Invoice {
   total_amount: number;
   currency: string;
   status: InvoiceStatus;
+  is_test?: boolean;
   expires_at?: string | null;
   paid_at?: string | null;
   deleted_at?: string | null;
-  is_test?: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Order {
-  id: string;
-  merchant_id: string;
-  bot_id: string;
-  customer_id: string;
-  product_id: string;
-  invoice_id: string;
-  amount: number;
-  currency: string;
-  status: OrderStatus;
-  delivered_code_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -191,4 +190,17 @@ export interface Refund {
   telegram_refund_id?: string | null;
   status: string;
   created_at: string;
+}
+
+export interface PlatformSubscriptionOrder {
+  id: string;
+  merchant_id: string;
+  telegram_user_id: number;
+  item_type: 'plan' | 'credit_pack';
+  item_code: string;
+  amount_stars: number;
+  telegram_charge_id?: string | null;
+  status: 'pending' | 'paid' | 'cancelled';
+  created_at: string;
+  updated_at: string;
 }
