@@ -279,6 +279,7 @@ export async function handleSettingsView(ctx: any, merchantId: string, botUserna
       ? '7 أيام'
       : 'بلا انتهاء';
   const notifyStatus = settings.notify_on_payment !== false ? '[مفعلة]' : '[متوقفة]';
+  const testModeStatus = settings.test_mode !== false ? '🟢 مفعّل (Sandbox)' : '⚪ معطّل (الإنتاج)';
 
   const text =
     `<b>إعدادات المتجر والفواتير:</b>\n\n` +
@@ -287,7 +288,8 @@ export async function handleSettingsView(ctx: any, merchantId: string, botUserna
     `• رسالة ما بعد الدفع: <b>${thankyouMsg}</b>\n` +
     `• يوزر الدعم الفني: <b>${supportUser}</b>\n` +
     `• صلاحية الفواتير الافتراضية: <b>${expiryLabel}</b>\n` +
-    `• إشعارات السداد الفورية: <b>${notifyStatus}</b>\n\n` +
+    `• إشعارات السداد الفورية: <b>${notifyStatus}</b>\n` +
+    `• وضع الاختبار (Sandbox): <b>${testModeStatus}</b>\n\n` +
     `اضغط على أي خيار أدناه لتعديله وتخصيصه:`;
 
   const keyboard = new InlineKeyboard()
@@ -299,6 +301,8 @@ export async function handleSettingsView(ctx: any, merchantId: string, botUserna
     .row()
     .text(`صلاحية الفواتير: ${expiryLabel}`, 'admin:set:expiry_menu')
     .text(`تنبيهات السداد: ${notifyStatus}`, 'admin:set:toggle_notify')
+    .row()
+    .text(`🧪 وضع الاختبار: ${settings.test_mode !== false ? '🟢 مفعّل' : '⚪ معطّل'}`, 'admin:set:toggle_test_mode')
     .row()
     .text('🔙 لوحة التحكم', 'admin:main_menu');
 
@@ -352,27 +356,38 @@ export async function handleAnalyticsView(ctx: any, merchantId: string) {
 
   const paidInvoices = invoices.filter((i) => i.status === 'paid');
   const pendingInvoices = invoices.filter((i) => i.status === 'pending');
-  const totalRevenue = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
 
-  // Revenue by time
+  const realPayments = payments.filter((p) => p.provider !== 'test_sandbox');
+  const sandboxPayments = payments.filter((p) => p.provider === 'test_sandbox');
+
+  const totalRevenue = realPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+
+  // Revenue by time (Real Stars)
   const now = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
-  const todayRevenue = payments
+  const todayRevenue = realPayments
     .filter((p) => now - new Date(p.created_at).getTime() < dayMs)
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
-  const weekRevenue = payments
+  const weekRevenue = realPayments
     .filter((p) => now - new Date(p.created_at).getTime() < 7 * dayMs)
     .reduce((acc, p) => acc + (p.amount || 0), 0);
 
   let text =
     `<b>التقرير المالي وسجل العملاء:</b>\n\n` +
-    `<b>المؤشرات المالية (⭐️ Stars):</b>\n` +
-    `• إجمالي الإيرادات: <b>${totalRevenue} ⭐️ Stars</b>\n` +
+    `<b>المؤشرات المالية الحقيقية (⭐️ Stars):</b>\n` +
+    `• إجمالي الإيرادات الحقيقية: <b>${totalRevenue} ⭐️ Stars</b>\n` +
     `• إيراد آخر 24 ساعة: <b>${todayRevenue} ⭐️</b>\n` +
     `• إيراد آخر 7 أيام: <b>${weekRevenue} ⭐️</b>\n` +
-    `• الفواتير المسددة: <code>${paidInvoices.length}</code>\n` +
-    `• الفواتير المعلقة: <code>${pendingInvoices.length}</code>\n\n` +
+    `• إجمالي الفواتير المسددة: <code>${paidInvoices.length}</code>\n` +
+    `• إجمالي الفواتير المعلقة: <code>${pendingInvoices.length}</code>\n`;
+
+  if (sandboxPayments.length > 0) {
+    const sandboxVol = sandboxPayments.reduce((acc, p) => acc + (p.amount || 0), 0);
+    text += `\n🧪 <b>معاملات الاختبار التجريبي (Sandbox):</b>\n`;
+    text += `• عدد عمليات الاختبار: <code>${sandboxPayments.length}</code> عملية\n`;
+    text += `• حجم النجوم التجريبي: <code>${sandboxVol} ⭐️</code> (محاكاة فقط)\n`;
+  }
     `<b>سجل العملاء المتفاعلين (${customers.length}):</b>\n`;
 
   if (customers.length === 0) {

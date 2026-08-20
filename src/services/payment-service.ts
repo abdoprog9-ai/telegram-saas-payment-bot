@@ -47,7 +47,6 @@ export async function sendTelegramStarsInvoice(
   invoice: Invoice,
   extraPayload?: { orderId?: string; productId?: string }
 ): Promise<any> {
-  // Telegram payload has a STRICT 128-byte limit!
   const compactData: CompactPayload = {
     i: invoice.id,
     o: extraPayload?.orderId,
@@ -56,7 +55,6 @@ export async function sendTelegramStarsInvoice(
 
   const payloadStr = JSON.stringify(compactData);
 
-  // Telegram title max 32 chars, description max 255 chars
   const safeTitle = invoice.title.slice(0, 32);
   const safeDescription = (invoice.description || `سداد فاتورة رقم: ${invoice.invoice_number}`).slice(0, 255);
 
@@ -65,11 +63,11 @@ export async function sendTelegramStarsInvoice(
     safeTitle,
     safeDescription,
     payloadStr,
-    'XTR', // Telegram Stars currency
+    'XTR',
     [
       {
         label: safeTitle,
-        amount: invoice.total_amount, // Stars amount
+        amount: invoice.total_amount,
       },
     ]
   );
@@ -216,6 +214,110 @@ export async function handleSuccessfulPayment(
 }
 
 /**
+ * Simulates a successful test payment (Sandbox mode) without charging real Stars
+ */
+export async function simulateTestPayment(
+  api: Api,
+  chatId: number,
+  customerTelegramId: number,
+  invoiceId: string
+): Promise<{ success: boolean; chargeId: string }> {
+  const supabase = getSupabase();
+
+  const { data: invoice, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('id', invoiceId)
+    .single();
+
+  if (error || !invoice) {
+    throw new Error('الفاتورة غير موجودة.');
+  }
+
+  if (invoice.status === 'paid') {
+    throw new Error('هذه الفاتورة مدفوعة مسبقاً.');
+  }
+
+  const testChargeId = `sandbox_${Date.now()}_${invoice.id.slice(0, 8)}`;
+
+  // 1. Record payment in payments table
+  await supabase.from('payments').upsert({
+    invoice_id: invoiceId,
+    merchant_id: invoice.merchant_id,
+    provider: 'test_sandbox',
+    telegram_charge_id: testChargeId,
+    amount: invoice.total_amount,
+    currency: 'XTR',
+    status: 'successful',
+    raw_payload: { simulated: true, invoiceId, customerTelegramId },
+  }, { onConflict: 'telegram_charge_id' });
+
+  // 2. Update invoice status to paid
+  await supabase
+    .from('invoices')
+    .update({ status: 'paid', paid_at: new Date().toISOString() })
+    .eq('id', invoiceId);
+
+  // 3. Deduct operation from usage
+  const { data: usage } = await supabase
+    .from('usage')
+    .select('operations_used')
+    .eq('merchant_id', invoice.merchant_id)
+    .single();
+
+  if (usage) {
+    await supabase
+      .from('usage')
+      .update({
+        operations_used: (usage.operations_used || 0) + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('merchant_id', invoice.merchant_id);
+  }
+
+  // 4. Fetch Merchant Settings
+  const settings = await getMerchantSettings(invoice.merchant_id);
+
+  // 5. Send Confirmation to Customer
+  let customerMsg = `🧪 <b>تم سداد الفاتورة تجريبياً بنجاح (Sandbox Mode)</b>\n\n`;
+  customerMsg += `• الفاتورة: <b>${invoice.title}</b> (<code>${invoice.invoice_number}</code>)\n`;
+  customerMsg += `• المبلغ: <b>${invoice.total_amount} ⭐️ Stars</b>\n`;
+  customerMsg += `• رقم المعاملة التجريبية: <code>${testChargeId}</code>\n\n`;
+
+  if (settings.custom_thankyou_msg) {
+    customerMsg += `<b>رسالة التاجر للعميل:</b>\n${settings.custom_thankyou_msg}\n\n`;
+  } else {
+    customerMsg += `شكراً لك! هذه عملية محاكاة تجريبية وتم تحديث حالة الفاتورة وإشعار التاجر بنجاح.\n`;
+  }
+
+  await api.sendMessage(chatId, customerMsg, { parse_mode: 'HTML' });
+
+  // 6. Notify Merchant Owner
+  if (settings.notify_on_payment !== false) {
+    const { data: merchantBot } = await supabase
+      .from('telegram_bots')
+      .select('*, merchants!inner(users!inner(telegram_user_id))')
+      .eq('id', invoice.bot_id)
+      .single();
+
+    const merchantTgId = merchantBot?.merchants?.users?.telegram_user_id;
+    if (merchantTgId) {
+      const notifyText =
+        `🧪 <b>إشعار سداد تجريبي جديد (Sandbox Alert)</b>\n\n` +
+        `• الفاتورة: <b>${invoice.title}</b> (<code>${invoice.invoice_number}</code>)\n` +
+        `• المبلغ: <b>${invoice.total_amount} ⭐️ Stars</b>\n` +
+        `• رقم المعاملة: <code>${testChargeId}</code>\n` +
+        `• معرف العميل: <code>${customerTelegramId}</code>\n\n` +
+        `<i>تم تسجيل الفاتورة كمدفوعة واحتساب عملية الاستهلاك بنجاح.</i>`;
+
+      await api.sendMessage(merchantTgId, notifyText, { parse_mode: 'HTML' }).catch(() => {});
+    }
+  }
+
+  return { success: true, chargeId: testChargeId };
+}
+
+/**
  * Refunds a Telegram Stars Payment via Telegram API and updates database
  */
 export async function refundTelegramStarsPayment(
@@ -227,7 +329,6 @@ export async function refundTelegramStarsPayment(
 ): Promise<Refund> {
   const supabase = getSupabase();
 
-  // 1. Fetch Payment Record
   const { data: payment, error: payErr } = await supabase
     .from('payments')
     .select('*, invoices(*)')
@@ -239,10 +340,11 @@ export async function refundTelegramStarsPayment(
     throw new Error('Payment record not found');
   }
 
-  // 2. Call Telegram Bot API refundStarPayment
-  await api.refundStarPayment(userId, telegramChargeId);
+  // If real stars payment, call Telegram refund API
+  if (payment.provider !== 'test_sandbox') {
+    await api.refundStarPayment(userId, telegramChargeId);
+  }
 
-  // 3. Create Refund record in DB
   const { data: newRefund, error: refErr } = await supabase
     .from('refunds')
     .insert({
@@ -260,7 +362,6 @@ export async function refundTelegramStarsPayment(
     throw new Error(`Database error recording refund: ${refErr?.message}`);
   }
 
-  // 4. Update Invoice Status to Refunded
   await supabase
     .from('invoices')
     .update({ status: 'refunded', updated_at: new Date().toISOString() })

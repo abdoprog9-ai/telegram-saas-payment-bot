@@ -35,6 +35,7 @@ export interface MerchantSettings {
   support_username?: string | null;
   invoice_expiry_hours?: number;
   notify_on_payment?: boolean;
+  test_mode?: boolean;
   created_at: string;
   updated_at: string;
 }

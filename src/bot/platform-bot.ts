@@ -339,6 +339,10 @@ function setupPlatformBotHandlers(bot: Bot) {
         .text('🔋 شحن +200 عملية (90⭐️)', `plat:buy_pack:${merchantId}:pack_200`)
         .row()
         .text('🔋 شحن +500 عملية (200⭐️)', `plat:buy_pack:${merchantId}:pack_500`)
+        .row()
+        .text('🧪 تجربة تفعيل باقة 1$ تجريبياً (Sandbox)', `plat:test_buy_plan:${merchantId}:monthly_1`)
+        .row()
+        .text('🧪 تجربة شحن +50 عملية تجريبياً (Sandbox)', `plat:test_buy_pack:${merchantId}:pack_50`)
         .row();
     } else {
       keyboard.text('🤖 يرجى ربط بوت أولاً لتفعيل الاشتراك', 'platform:link_bot').row();
@@ -379,6 +383,67 @@ function setupPlatformBotHandlers(bot: Bot) {
       await sendPlatformSubscriptionStarsInvoice(bot.api, chatId, merchantId, 'credit_pack', packCode);
     } catch (err: any) {
       await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+    }
+  });
+
+  // Sandbox Test Upgrade / Top-up Handler (No Real Stars required)
+  bot.callbackQuery(/^plat:test_buy_plan:(.+):(.+)$/, async (ctx: Context) => {
+    const merchantId = ctx.match?.[1];
+    const planCode = ctx.match?.[2];
+    if (!merchantId || !planCode) return;
+
+    await ctx.answerCallbackQuery().catch(() => {});
+    try {
+      const sub = await upgradeMerchantPlan(merchantId, planCode);
+      const supabase = getSupabase();
+      const { data: plan } = await supabase.from('plans').select('*').eq('code', planCode).single();
+
+      const successText =
+        `🧪 <b>تم تفعيل الاشتراك تجريبياً بنجاح (Sandbox Mode)!</b>\n\n` +
+        `• الخطة: <b>${plan?.name || planCode}</b>\n` +
+        `• العمليات المضافة: <b>+${plan?.included_operations} عملية</b>\n` +
+        `• الصلاحية: <b>30 يوماً</b> (حتى <code>${new Date(sub.expires_at || Date.now()).toLocaleDateString('ar-EG')}</code>)\n` +
+        `• وسيلة الدفع: <code>🧪 تجريبي Sandbox (بدون نجوم حقيقية)</code>\n\n` +
+        `تم تحديث رصيد متجرك وبوتك فورياً! يمكنك الآن فتح بوتك والتحقق من الرصيد.`;
+
+      const kb = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: kb });
+      } else {
+        await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: kb });
+      }
+    } catch (err: any) {
+      await ctx.reply(`⚠️ خطأ في المحاكاة التجريبية: ${err?.message}`);
+    }
+  });
+
+  bot.callbackQuery(/^plat:test_buy_pack:(.+):(.+)$/, async (ctx: Context) => {
+    const merchantId = ctx.match?.[1];
+    const packCode = ctx.match?.[2];
+    if (!merchantId || !packCode) return;
+
+    await ctx.answerCallbackQuery().catch(() => {});
+    try {
+      const pack = CREDIT_PACKS[packCode];
+      const credits = pack?.credits || 50;
+      const usage = await addBonusCredits(merchantId, credits);
+
+      const successText =
+        `🧪 <b>تم شحن الرصيد الإضافي تجريبياً بنجاح (Sandbox Mode)!</b>\n\n` +
+        `• الباقة: <b>${pack?.name || 'شحن رصيد'}</b>\n` +
+        `• العمليات المضافة: <b>+${credits} عملية إضافية</b>\n` +
+        `• الرصيد الإضافي الكلي الآن: <b>${usage.bonus_credits} عملية</b> (دائمة لا تنتهي)\n` +
+        `• وسيلة الدفع: <code>🧪 تجريبي Sandbox (بدون نجوم حقيقية)</code>\n\n` +
+        `تم تحديث رصيد متجرك فورياً!`;
+
+      const kb = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
+      if (ctx.callbackQuery) {
+        await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: kb });
+      } else {
+        await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: kb });
+      }
+    } catch (err: any) {
+      await ctx.reply(`⚠️ خطأ في المحاكاة التجريبية: ${err?.message}`);
     }
   });
 

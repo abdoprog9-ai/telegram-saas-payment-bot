@@ -53,6 +53,9 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
       text += `• <b>${inv.title}</b> (<b>${inv.total_amount} ⭐️ Stars</b>)\n`;
       text += `  رقم الفاتورة: <code>${inv.invoice_number}</code>\n\n`;
       keyboard.text(`⭐️ سداد فاتورة ${inv.invoice_number}`, `pay:inv:${inv.id}`).row();
+      if (settings.test_mode) {
+        keyboard.text(`🧪 سداد تجريبي (Sandbox): ${inv.invoice_number}`, `cust:test_pay:${inv.id}`).row();
+      }
     }
   } else {
     text += `<b>كيفية سداد الفواتير:</b>\n`;

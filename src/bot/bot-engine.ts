@@ -21,6 +21,7 @@ import {
   sendTelegramStarsInvoice,
   handlePreCheckoutQuery,
   handleSuccessfulPayment,
+  simulateTestPayment,
 } from '../services/payment-service.js';
 import { updateMerchantSettings, getMerchantSettings } from '../services/settings-service.js';
 import { TelegramBot } from '../types/index.js';
@@ -149,6 +150,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       }
 
       // Send Invoice Presentation Card
+      const settings = await getMerchantSettings(merchantId);
       const cardText =
         `<b>فاتورة مستحقة الدفع:</b>\n\n` +
         `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
@@ -157,7 +159,12 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
         `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
         `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
 
-      await ctx.reply(cardText, { parse_mode: 'HTML' });
+      const cardKb = new InlineKeyboard();
+      if (settings.test_mode) {
+        cardKb.text('🧪 سداد تجريبي (Sandbox Test Payment)', `cust:test_pay:${invoice.id}`);
+      }
+
+      await ctx.reply(cardText, { parse_mode: 'HTML', reply_markup: cardKb.inline_keyboard.length > 0 ? cardKb : undefined });
 
       // Trigger Telegram Stars Checkout Sheet
       try {
@@ -236,6 +243,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
             return;
           }
 
+          const settings = await getMerchantSettings(merchantId);
           const cardText =
             `<b>فاتورة مستحقة الدفع:</b>\n\n` +
             `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
@@ -244,7 +252,12 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
             `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
             `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
 
-          await ctx.reply(cardText, { parse_mode: 'HTML' });
+          const cardKb = new InlineKeyboard();
+          if (settings.test_mode) {
+            cardKb.text('🧪 سداد تجريبي (Sandbox Test Payment)', `cust:test_pay:${invoice.id}`);
+          }
+
+          await ctx.reply(cardText, { parse_mode: 'HTML', reply_markup: cardKb.inline_keyboard.length > 0 ? cardKb : undefined });
           try {
             await sendTelegramStarsInvoice(bot.api, chatId, invoice);
           } catch (err: any) {
@@ -369,11 +382,24 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
       await updateMerchantSettings(merchantId, { notify_on_payment: newStatus });
       await ctx.answerCallbackQuery({ text: newStatus ? 'تم تفعيل التنبيهات' : 'تم كتم التنبيهات' });
       await handleSettingsView(ctx, merchantId, botUsername, botId);
+    } else if (data === 'admin:set:toggle_test_mode') {
+      const current = await getMerchantSettings(merchantId);
+      const newStatus = current.test_mode === false ? true : false;
+      await updateMerchantSettings(merchantId, { test_mode: newStatus });
+      await ctx.answerCallbackQuery({ text: newStatus ? 'تم تفعيل وضع الاختبار (Sandbox)' : 'تم تعطيل وضع الاختبار (الإنتاج)' });
+      await handleSettingsView(ctx, merchantId, botUsername, botId);
     }
 
     // --- Customer Views & Actions ---
     else if (data === 'cust:home') {
       await renderCustomerHome(ctx, merchantId, botId, botUsername);
+    } else if (data?.startsWith('cust:test_pay:') && chatId && fromId) {
+      const invoiceId = data.replace('cust:test_pay:', '');
+      try {
+        await simulateTestPayment(bot.api, chatId, fromId, invoiceId);
+      } catch (err: any) {
+        await ctx.reply(`⚠️ تعذر إتمام السداد التجريبي: ${err?.message}`);
+      }
     } else if (data?.startsWith('pay:inv:') && chatId) {
       const invoiceId = data.replace('pay:inv:', '');
       const { data: invoice } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();

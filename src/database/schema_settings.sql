@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS merchant_settings (
     support_username TEXT,
     invoice_expiry_hours INT DEFAULT 0, -- 0 = No expiration
     notify_on_payment BOOLEAN DEFAULT true,
+    test_mode BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
