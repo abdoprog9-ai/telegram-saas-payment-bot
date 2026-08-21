@@ -147,20 +147,20 @@ function setupPlatformBotHandlers(bot: Bot) {
     } catch {}
 
     const text =
-      `🌟 <b>منصة Telegram SaaS Payments</b>\n\n` +
-      `المنصة السحابية المتكاملة لإنشاء الفواتير واستقبال مدفوعات نجوم تيليجرام (Telegram Stars) مباشرة وبأعلى سرعة وأمان.\n\n` +
-      `📊 <b>إحصائيات عامة للمنصة:</b>\n` +
+      `<b>ستار باي | StarPay</b>\n\n` +
+      `منظومة الفواتير السحابية لإنشاء وإدارة فواتير الدفع واستقبال مدفوعات نجوم تيليجرام (Telegram Stars) بسرعة وأمان.\n\n` +
+      `<b>إحصائيات المنصة:</b>\n` +
       `• الفواتير المسددة: <b>${paidCount.toLocaleString('ar-EG')}</b> فاتورة\n` +
-      `• الإيرادات المحصلة: <b>${totalStars.toLocaleString('ar-EG')} ⭐️ Stars</b>\n` +
+      `• الإيرادات المحصلة: <b>${totalStars.toLocaleString('ar-EG')} Stars</b>\n` +
       `• البوتات النشطة: <b>${activeBotsCount.toLocaleString('ar-EG')}</b> بوت\n\n` +
       `اختر من القائمة أدناه:`;
 
     const keyboard = new InlineKeyboard()
-      .text('🤖 بوتاتي', 'platform:my_bots')
-      .text('💎 الاشتراك والخطة', 'platform:plans');
+      .text('بوتاتي المربوطة', 'platform:my_bots')
+      .text('الاشتراكات وشحن الرصيد', 'platform:plans');
 
     if (isSuperAdmin) {
-      keyboard.row().text('👑 لوحة تحكم السوبر أدمن (إدارة المنصة)', 'platform:superadmin_main');
+      keyboard.row().text('لوحة إدارة المنصة (SuperAdmin)', 'platform:superadmin_main');
     }
 
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -190,14 +190,14 @@ function setupPlatformBotHandlers(bot: Bot) {
         const { data: plan } = await supabase.from('plans').select('*').eq('code', code).single();
 
         const successText =
-          `🎉 <b>تم تفعيل اشتراكك بنجاح!</b>\n\n` +
+          `<b>تم تفعيل الاشتراك بنجاح</b>\n\n` +
           `• الخطة: <b>${plan?.name || code}</b>\n` +
           `• العمليات المضافة: <b>+${plan?.included_operations} عملية</b>\n` +
           `• الصلاحية: <b>30 يوماً</b> (حتى <code>${new Date(sub.expires_at || Date.now()).toLocaleDateString('ar-EG')}</code>)\n` +
-          `• المبلغ المسدد: <b>${payment.total_amount} ⭐️ Stars</b>\n\n` +
-          `تم تحديث رصيد متجرك وبوتك فورياً!`;
+          `• المبلغ المسدد: <b>${payment.total_amount} Stars</b>\n\n` +
+          `تم تحديث رصيد الحساب والبوتات فورياً.`;
 
-        const kb = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
+        const kb = new InlineKeyboard().text('الرئيسية', 'platform:main_menu');
         await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: kb });
       } else if (type === 'credit_pack') {
         const pack = CREDIT_PACKS[code];
@@ -205,18 +205,18 @@ function setupPlatformBotHandlers(bot: Bot) {
         const usage = await addBonusCredits(merchantId, credits);
 
         const successText =
-          `🎉 <b>تم شحن الرصيد الإضافي بنجاح!</b>\n\n` +
+          `<b>تم شحن الرصيد الإضافي بنجاح</b>\n\n` +
           `• الباقة: <b>${pack?.name || 'شحن رصيد'}</b>\n` +
           `• العمليات المضافة: <b>+${credits} عملية إضافية</b>\n` +
-          `• الرصيد الإضافي الكلي الآن: <b>${usage.bonus_credits} عملية</b> (دائمة لا تنتهي)\n` +
-          `• المبلغ المسدد: <b>${payment.total_amount} ⭐️ Stars</b>\n\n` +
-          `يمكنك العودة لبوتك ومتابعة إصدار الفواتير فورياً.`;
+          `• إجمالي الرصيد الإضافي الآن: <b>${usage.bonus_credits} عملية</b> (دائمة لا تنتهي)\n` +
+          `• المبلغ المسدد: <b>${payment.total_amount} Stars</b>\n\n` +
+          `تمت إضافة الرصيد إلى حسابك ويمكنك متابعة إصدار الفواتير.`;
 
-        const kb = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
+        const kb = new InlineKeyboard().text('الرئيسية', 'platform:main_menu');
         await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: kb });
       }
     } catch (err: any) {
-      await ctx.reply(`⚠️ حدث خطأ أثناء معالجة الترقية: ${err?.message}`);
+      await ctx.reply(`حدث خطأ أثناء معالجة الترقية: ${err?.message}`);
     }
   });
 
@@ -233,7 +233,7 @@ function setupPlatformBotHandlers(bot: Bot) {
       if (adminSession.action === 'custom_credits') {
         const amount = parseInt(text, 10);
         if (isNaN(amount) || amount <= 0) {
-          await ctx.reply('⚠️ يرجى إدخال رقم صحيح وموجب لعدد العمليات (مثال: 150 أو 500):');
+          await ctx.reply('يرجى إدخال رقم صحيح وموجب لعدد العمليات (مثال: 150 أو 500):');
           return;
         }
 
@@ -241,7 +241,7 @@ function setupPlatformBotHandlers(bot: Bot) {
         const updated = await addBonusCredits(adminSession.merchantId, amount);
 
         await ctx.reply(
-          `✅ <b>تم شحن الرصيد المخصص بنجاح!</b>\n\n` +
+          `<b>تم شحن الرصيد المخصص بنجاح</b>\n\n` +
           `• التاجر: <b>${adminSession.merchantName}</b>\n` +
           `• الرصيد المضاف: <b>+${amount} عملية</b>\n` +
           `• إجمالي الرصيد الإضافي للتاجر: <b>${updated.bonus_credits} عملية</b>`,
@@ -312,27 +312,27 @@ function setupPlatformBotHandlers(bot: Bot) {
         });
 
         const successText =
-          `<b>تم ربط وتفعيل بوتك بنجاح</b>\n\n` +
+          `<b>تم ربط وتفعيل البوت بنجاح</b>\n\n` +
           `• اسم البوت: <b>${botRecord.botFirstName || botRecord.botUsername}</b>\n` +
-          `• يوزر البوت: <b>@${botRecord.botUsername}</b>\n` +
+          `• معرف البوت: <b>@${botRecord.botUsername}</b>\n` +
           `• التشفير: <b>AES-256-GCM نشط</b>\n` +
-          `• الربط: <b>Webhook فوري ومتصل</b>\n\n` +
+          `• الاتصال: <b>Webhook فوري ومتصل</b>\n\n` +
           `<b>الخطوة التالية:</b>\n` +
-          `ادخل إلى بوتك الآن <b>@${botRecord.botUsername}</b> واضغط على <b>لوحة الإدارة</b> أو <b>/start</b> للبدء فورياً في إنشاء الفواتير ومشاركتها مع عملائك!`;
+          `ادخل إلى بوتك الآن <b>@${botRecord.botUsername}</b> واضغط على <b>/start</b> للبدء في إنشاء الفواتير وإدارتها.`;
 
         const keyboard = new InlineKeyboard()
           .url(`فتح البوت @${botRecord.botUsername}`, `https://t.me/${botRecord.botUsername}?start=admin`)
           .row()
-          .text('🔙 القائمة الرئيسية', 'platform:main_menu');
+          .text('الرئيسية', 'platform:main_menu');
 
         await ctx.api.deleteMessage(chat.id, waitMsg.message_id).catch(() => {});
         await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: keyboard });
       } catch (err: any) {
         await ctx.api.deleteMessage(chat.id, waitMsg.message_id).catch(() => {});
         const errKb = new InlineKeyboard()
-          .text('📋 استعراض بوتاتي المربوطة', 'platform:my_bots')
+          .text('استعراض بوتاتي المربوطة', 'platform:my_bots')
           .row()
-          .text('🔙 الرئيسية', 'platform:main_menu');
+          .text('الرئيسية', 'platform:main_menu');
         await ctx.reply(`تعذر ربط البوت: ${err?.message || 'تأكد من صحة التوكن من @BotFather وحاول مجدداً.'}`, {
           reply_markup: errKb,
         });
@@ -345,43 +345,39 @@ function setupPlatformBotHandlers(bot: Bot) {
     const merchant = await resolveMerchantForUser(userId, explicitMerchantId);
     const merchantId = merchant?.id || explicitMerchantId;
 
-    let text =
-      `💎 <b>الخطط الشهرية وباقات شحن الرصيد</b>\n\n` +
-      `<b>1️⃣ الخطط الشهرية المتجددة (تتجدد كل 30 يوماً):</b>\n` +
-      `• <b>الباقة الأساسية ($1.00):</b> <code>100 عملية/شهر</code> (50 ⭐️)\n` +
-      `• <b>الباقة القياسية ($3.00):</b> <code>350 عملية/شهر</code> (150 ⭐️)\n` +
-      `• <b>الباقة المتقدمة ($5.00):</b> <code>600 عملية/شهر</code> (250 ⭐️)\n\n` +
-      `<b>2️⃣ باقات شحن الرصيد الإضافي (دائمة لا تنتهي صلاحيتها):</b>\n` +
-      `<i>(لشحن عمليات إضافية فوراً في حال نفاد رصيدك قبل نهاية الشهر)</i>\n` +
-      `• <b>50 عملية إضافية:</b> 25 ⭐️\n` +
-      `• <b>200 عملية إضافية:</b> 90 ⭐️\n` +
-      `• <b>500 عملية إضافية:</b> 200 ⭐️\n\n` +
+    const text =
+      `<b>الخطط الشهرية وباقات شحن الرصيد</b>\n\n` +
+      `<b>1. الخطط الشهرية المتجددة (صلاحية 30 يوماً):</b>\n` +
+      `• <b>الباقة الأساسية ($1.00):</b> <code>100 عملية/شهر</code> (50 Stars)\n` +
+      `• <b>الباقة القياسية ($3.00):</b> <code>350 عملية/شهر</code> (150 Stars)\n` +
+      `• <b>الباقة المتقدمة ($5.00):</b> <code>600 عملية/شهر</code> (250 Stars)\n\n` +
+      `<b>2. باقات شحن العمليات الإضافية (دائمة لا تنتهي):</b>\n` +
+      `<i>(لشحن عمليات إضافية فوراً في حال نفاد الرصيد)</i>\n` +
+      `• <b>50 عملية إضافية:</b> 25 Stars\n` +
+      `• <b>200 عملية إضافية:</b> 90 Stars\n` +
+      `• <b>500 عملية إضافية:</b> 200 Stars\n\n` +
       `اختر الباقة المناسبة للدفع الفوري بنجوم تيليجرام:`;
 
     const keyboard = new InlineKeyboard();
 
     if (merchantId) {
       keyboard
-        .text('⚡ باقة 1$ (50⭐️) - 100 عملية', `plat:buy_plan:${merchantId}:monthly_1`)
+        .text('باقة 1$ (50 Star) - 100 عملية', `plat:buy_plan:${merchantId}:monthly_1`)
         .row()
-        .text('⚡ باقة 3$ (150⭐️) - 350 عملية', `plat:buy_plan:${merchantId}:monthly_3`)
+        .text('باقة 3$ (150 Star) - 350 عملية', `plat:buy_plan:${merchantId}:monthly_3`)
         .row()
-        .text('⚡ باقة 5$ (250⭐️) - 600 عملية', `plat:buy_plan:${merchantId}:monthly_5`)
+        .text('باقة 5$ (250 Star) - 600 عملية', `plat:buy_plan:${merchantId}:monthly_5`)
         .row()
-        .text('🔋 شحن +50 عملية (25⭐️)', `plat:buy_pack:${merchantId}:pack_50`)
-        .text('🔋 شحن +200 عملية (90⭐️)', `plat:buy_pack:${merchantId}:pack_200`)
+        .text('شحن 50 عملية (25 Star)', `plat:buy_pack:${merchantId}:pack_50`)
+        .text('شحن 200 عملية (90 Star)', `plat:buy_pack:${merchantId}:pack_200`)
         .row()
-        .text('🔋 شحن +500 عملية (200⭐️)', `plat:buy_pack:${merchantId}:pack_500`)
-        .row()
-        .text('🧪 تجربة تفعيل باقة 1$ تجريبياً (Sandbox)', `plat:test_buy_plan:${merchantId}:monthly_1`)
-        .row()
-        .text('🧪 تجربة شحن +50 عملية تجريبياً (Sandbox)', `plat:test_buy_pack:${merchantId}:pack_50`)
+        .text('شحن 500 عملية (200 Star)', `plat:buy_pack:${merchantId}:pack_500`)
         .row();
     } else {
-      keyboard.text('🤖 يرجى ربط بوت أولاً لتفعيل الاشتراك', 'platform:link_bot').row();
+      keyboard.text('يرجى ربط بوت أولاً لتفعيل الاشتراك', 'platform:link_bot').row();
     }
 
-    keyboard.text('🔙 الرئيسية', 'platform:main_menu');
+    keyboard.text('الرئيسية', 'platform:main_menu');
 
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -401,7 +397,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     try {
       await sendPlatformSubscriptionStarsInvoice(bot.api, chatId, merchantId, 'plan', planCode);
     } catch (err: any) {
-      await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
+      await ctx.reply(`تعذر إرسال نموذج الدفع: ${err?.message}`);
     }
   });
 
@@ -415,38 +411,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     try {
       await sendPlatformSubscriptionStarsInvoice(bot.api, chatId, merchantId, 'credit_pack', packCode);
     } catch (err: any) {
-      await ctx.reply(`⚠️ تعذر إرسال نموذج الدفع: ${err?.message}`);
-    }
-  });
-
-  // Sandbox Test Upgrade / Top-up Handler (No Real Stars required)
-  bot.callbackQuery(/^plat:test_buy_plan:(.+):(.+)$/, async (ctx: Context) => {
-    const merchantId = ctx.match?.[1];
-    const planCode = ctx.match?.[2];
-    if (!merchantId || !planCode) return;
-
-    await ctx.answerCallbackQuery().catch(() => {});
-    try {
-      const sub = await upgradeMerchantPlan(merchantId, planCode);
-      const supabase = getSupabase();
-      const { data: plan } = await supabase.from('plans').select('*').eq('code', planCode).single();
-
-      const successText =
-        `🧪 <b>تم تفعيل الاشتراك تجريبياً بنجاح (Sandbox Mode)!</b>\n\n` +
-        `• الخطة: <b>${plan?.name || planCode}</b>\n` +
-        `• العمليات المضافة: <b>+${plan?.included_operations} عملية</b>\n` +
-        `• الصلاحية: <b>30 يوماً</b> (حتى <code>${new Date(sub.expires_at || Date.now()).toLocaleDateString('ar-EG')}</code>)\n` +
-        `• وسيلة الدفع: <code>🧪 تجريبي Sandbox (بدون نجوم حقيقية)</code>\n\n` +
-        `تم تحديث رصيد متجرك وبوتك فورياً! يمكنك الآن فتح بوتك والتحقق من الرصيد.`;
-
-      const kb = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
-      if (ctx.callbackQuery) {
-        await ctx.editMessageText(successText, { parse_mode: 'HTML', reply_markup: kb });
-      } else {
-        await ctx.reply(successText, { parse_mode: 'HTML', reply_markup: kb });
-      }
-    } catch (err: any) {
-      await ctx.reply(`⚠️ خطأ في المحاكاة التجريبية: ${err?.message}`);
+      await ctx.reply(`تعذر إرسال نموذج الدفع: ${err?.message}`);
     }
   });
 
@@ -502,19 +467,19 @@ function setupPlatformBotHandlers(bot: Bot) {
     const totalRevenueStars = (paymentsRes.data || []).reduce((acc, p) => acc + (p.amount || 0), 0);
 
     const text =
-      `👑 <b>لوحة تحكم السوبر أدمن | إدارة المنصة</b>\n\n` +
+      `<b>لوحة تحكم إدارة المنصة (SuperAdmin)</b>\n\n` +
       `<b>مؤشرات المنصة الكلية:</b>\n` +
       `• إجمالي التجار المشتركين: <b>${totalMerchants}</b> تاجر\n` +
       `• إجمالي البوتات المتصلة: <b>${totalBots}</b> بوت نشط\n` +
       `• إجمالي الفواتير الصادرة: <b>${totalInvoices}</b> فاتورة\n` +
-      `• إجمالي النجوم المحصلة: <b>${totalRevenueStars} ⭐️ Stars</b>\n\n` +
+      `• إجمالي النجوم المحصلة: <b>${totalRevenueStars} Stars</b>\n\n` +
       `اختر من القائمة أدناه لإدارة المشتركين أو الرصيد أو ترقية الخطط:`;
 
     const keyboard = new InlineKeyboard()
-      .text('👥 قائمة المشتركين وإدارة الرصيد', 'platform:superadmin_merchants')
+      .text('قائمة المشتركين وإدارة الرصيد', 'platform:superadmin_merchants')
       .row()
-      .text('🔄 تحديث الإحصائيات', 'platform:superadmin_main')
-      .text('🔙 الرئيسية', 'platform:main_menu');
+      .text('تحديث الإحصائيات', 'platform:superadmin_main')
+      .text('الرئيسية', 'platform:main_menu');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
@@ -531,7 +496,7 @@ function setupPlatformBotHandlers(bot: Bot) {
       .order('created_at', { ascending: false })
       .limit(8);
 
-    let text = `👥 <b>قائمة المشتركين والتجار (${merchants?.length || 0}):</b>\n\n`;
+    let text = `<b>قائمة المشتركين والتجار (${merchants?.length || 0}):</b>\n\n`;
     const keyboard = new InlineKeyboard();
 
     if (!merchants || merchants.length === 0) {
@@ -544,22 +509,22 @@ function setupPlatformBotHandlers(bot: Bot) {
         const base = m.usage?.[0]?.base_operations ?? 10;
         const bonus = m.usage?.[0]?.bonus_credits ?? 0;
         const avail = Math.max(0, (base + bonus) - used);
-        const statusBadge = m.status === 'active' ? '🟢 نشط' : '🔴 متوقف';
-        const suspendActionText = m.status === 'active' ? '⏸️ إيقاف مؤقت' : '▶️ إعادة التنشيط';
+        const statusBadge = m.status === 'active' ? '[نشط]' : '[متوقف]';
+        const suspendActionText = m.status === 'active' ? 'إيقاف مؤقت' : 'إعادة التنشيط';
 
-        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser}) [${statusBadge}]\n`;
+        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser}) ${statusBadge}\n`;
         text += `  الخطة: <code>${plan}</code> | المتاح: <code>${avail}</code> (المستهلك: <code>${used}</code>)\n`;
         text += `  الرصيد الإضافي: <code>${bonus}</code>\n\n`;
 
         keyboard
-          .text(`⚡ شحن رصيد`, `plat:adm_cred_menu:${m.id}`)
-          .text(`👑 باقة`, `plat:adm_plan_menu:${m.id}`)
+          .text(`شحن رصيد`, `plat:adm_cred_menu:${m.id}`)
+          .text(`باقة`, `plat:adm_plan_menu:${m.id}`)
           .text(`${suspendActionText}`, `plat:adm_toggle_suspend:${m.id}`)
           .row();
       }
     }
 
-    keyboard.text('🔙 عودة للوحة السوبر أدمن', 'platform:superadmin_main');
+    keyboard.text('عودة للوحة الإدارة', 'platform:superadmin_main');
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
 
@@ -596,7 +561,7 @@ function setupPlatformBotHandlers(bot: Bot) {
       .order('created_at', { ascending: false })
       .limit(8);
 
-    let text = `👥 <b>قائمة المشتركين والتجار (${merchants?.length || 0}):</b>\n\n`;
+    let text = `<b>قائمة المشتركين والتجار (${merchants?.length || 0}):</b>\n\n`;
     const keyboard = new InlineKeyboard();
 
     if (merchants) {
@@ -607,22 +572,22 @@ function setupPlatformBotHandlers(bot: Bot) {
         const base = m.usage?.[0]?.base_operations ?? 10;
         const bonus = m.usage?.[0]?.bonus_credits ?? 0;
         const avail = Math.max(0, (base + bonus) - used);
-        const statusBadge = m.status === 'active' ? '🟢 نشط' : '🔴 متوقف';
-        const suspendActionText = m.status === 'active' ? '⏸️ إيقاف مؤقت' : '▶️ إعادة التنشيط';
+        const statusBadge = m.status === 'active' ? '[نشط]' : '[متوقف]';
+        const suspendActionText = m.status === 'active' ? 'إيقاف مؤقت' : 'إعادة التنشيط';
 
-        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser}) [${statusBadge}]\n`;
+        text += `• <b>${m.business_name || 'تاجر'}</b> (${botUser}) ${statusBadge}\n`;
         text += `  الخطة: <code>${plan}</code> | المتاح: <code>${avail}</code> (المستهلك: <code>${used}</code>)\n`;
         text += `  الرصيد الإضافي: <code>${bonus}</code>\n\n`;
 
         keyboard
-          .text(`⚡ شحن رصيد`, `plat:adm_cred_menu:${m.id}`)
-          .text(`👑 باقة`, `plat:adm_plan_menu:${m.id}`)
+          .text(`شحن رصيد`, `plat:adm_cred_menu:${m.id}`)
+          .text(`باقة`, `plat:adm_plan_menu:${m.id}`)
           .text(`${suspendActionText}`, `plat:adm_toggle_suspend:${m.id}`)
           .row();
       }
     }
 
-    keyboard.text('🔙 عودة للوحة السوبر أدمن', 'platform:superadmin_main');
+    keyboard.text('عودة للوحة الإدارة', 'platform:superadmin_main');
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard }).catch(() => {});
   });
 
@@ -639,7 +604,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     const name = merchant?.business_name || 'التاجر';
 
     const text =
-      `⚡ <b>شحن رصيد عمليات للتاجر: ${name}</b>\n\n` +
+      `<b>شحن رصيد عمليات للتاجر: ${name}</b>\n\n` +
       `اختر عدد العمليات المطلوبة أو اضغط على إدخال رقم مخصص:`;
 
     const keyboard = new InlineKeyboard()
@@ -649,9 +614,9 @@ function setupPlatformBotHandlers(bot: Bot) {
       .text('+500 عملية', `plat:adm_add_fixed:${merchantId}:500`)
       .text('+1000 عملية', `plat:adm_add_fixed:${merchantId}:1000`)
       .row()
-      .text('✏️ إدخال عدد مخصص من العمليات', `plat:adm_add_custom:${merchantId}`)
+      .text('إدخال عدد مخصص من العمليات', `plat:adm_add_custom:${merchantId}`)
       .row()
-      .text('🔙 قائمة التجار', 'platform:superadmin_merchants');
+      .text('قائمة التجار', 'platform:superadmin_merchants');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
@@ -665,11 +630,11 @@ function setupPlatformBotHandlers(bot: Bot) {
     if (!merchantId || amount <= 0) return;
 
     const updated = await addBonusCredits(merchantId, amount);
-    await ctx.answerCallbackQuery({ text: `✅ تم شحن +${amount} عملية بنجاح! الرصيد الإضافي الآن: ${updated.bonus_credits}` });
+    await ctx.answerCallbackQuery({ text: `تم شحن +${amount} عملية بنجاح! الرصيد الإضافي الآن: ${updated.bonus_credits}` });
 
-    await ctx.editMessageText(`✅ تم بنجاح إيداع <b>+${amount} عملية إضافية</b> لحساب التاجر.\nالرصيد الإضافي الكلي الآن: <b>${updated.bonus_credits}</b>`, {
+    await ctx.editMessageText(`تم بنجاح إيداع <b>+${amount} عملية إضافية</b> لحساب التاجر.\nالرصيد الإضافي الكلي الآن: <b>${updated.bonus_credits}</b>`, {
       parse_mode: 'HTML',
-      reply_markup: new InlineKeyboard().text('🔙 عودة لقائمة المشتركين', 'platform:superadmin_merchants'),
+      reply_markup: new InlineKeyboard().text('عودة لقائمة المشتركين', 'platform:superadmin_merchants'),
     });
   });
 
@@ -691,7 +656,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     });
 
     const text =
-      `✏️ <b>إدخال رصيد مخصص للتاجر (${name}):</b>\n\n` +
+      `<b>إدخال رصيد مخصص للتاجر (${name}):</b>\n\n` +
       `أرسل الآن <b>عدد العمليات المطلوب شحنها</b> في رسالة نصية (مثال: <code>150</code> أو <code>2500</code>):`;
 
     const keyboard = new InlineKeyboard().text('إلغاء', 'platform:superadmin_merchants');
@@ -711,7 +676,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     const name = merchant?.business_name || 'التاجر';
 
     const text =
-      `👑 <b>ترقية / تغيير خطة التاجر يدوياً: ${name}</b>\n\n` +
+      `<b>ترقية / تغيير خطة التاجر يدوياً: ${name}</b>\n\n` +
       `اختر الخطة المطلوبة لتعيينها وتفعيلها لمدة 30 يوماً فورياً:`;
 
     const keyboard = new InlineKeyboard()
@@ -723,7 +688,7 @@ function setupPlatformBotHandlers(bot: Bot) {
       .row()
       .text('إعادة إلى خطة Trial (10 عمليات تجريبية)', `plat:adm_set_plan:${merchantId}:trial`)
       .row()
-      .text('🔙 قائمة التجار', 'platform:superadmin_merchants');
+      .text('قائمة التجار', 'platform:superadmin_merchants');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
@@ -737,15 +702,15 @@ function setupPlatformBotHandlers(bot: Bot) {
     if (!merchantId || !planCode) return;
 
     const sub = await upgradeMerchantPlan(merchantId, planCode);
-    await ctx.answerCallbackQuery({ text: `✅ تم تغيير الخطة بنجاح!` });
+    await ctx.answerCallbackQuery({ text: `تم تغيير الخطة بنجاح` });
 
     await ctx.editMessageText(
-      `✅ <b>تم تحديث وترقية خطة التاجر بنجاح!</b>\n\n` +
+      `<b>تم تحديث وترقية خطة التاجر بنجاح</b>\n\n` +
       `• الخطة الجديدة: <code>${planCode}</code>\n` +
       `• تاريخ التجديد القادم: <code>${new Date(sub.expires_at || Date.now()).toLocaleDateString('ar-EG')}</code>`,
       {
         parse_mode: 'HTML',
-        reply_markup: new InlineKeyboard().text('🔙 عودة لقائمة المشتركين', 'platform:superadmin_merchants'),
+        reply_markup: new InlineKeyboard().text('عودة لقائمة المشتركين', 'platform:superadmin_merchants'),
       }
     );
   });
@@ -777,20 +742,20 @@ function setupPlatformBotHandlers(bot: Bot) {
     } catch {}
 
     const text =
-      `🌟 <b>منصة Telegram SaaS Payments</b>\n\n` +
-      `المنصة السحابية المتكاملة لإنشاء الفواتير واستقبال مدفوعات نجوم تيليجرام (Telegram Stars) مباشرة وبأعلى سرعة وأمان.\n\n` +
-      `📊 <b>إحصائيات عامة للمنصة:</b>\n` +
+      `<b>ستار باي | StarPay</b>\n\n` +
+      `منظومة الفواتير السحابية لإنشاء وإدارة فواتير الدفع واستقبال مدفوعات نجوم تيليجرام (Telegram Stars) بسرعة وأمان.\n\n` +
+      `<b>إحصائيات المنصة:</b>\n` +
       `• الفواتير المسددة: <b>${paidCount.toLocaleString('ar-EG')}</b> فاتورة\n` +
-      `• الإيرادات المحصلة: <b>${totalStars.toLocaleString('ar-EG')} ⭐️ Stars</b>\n` +
+      `• الإيرادات المحصلة: <b>${totalStars.toLocaleString('ar-EG')} Stars</b>\n` +
       `• البوتات النشطة: <b>${activeBotsCount.toLocaleString('ar-EG')}</b> بوت\n\n` +
       `اختر من القائمة أدناه:`;
 
     const keyboard = new InlineKeyboard()
-      .text('🤖 بوتاتي', 'platform:my_bots')
-      .text('💎 الاشتراك والخطة', 'platform:plans');
+      .text('بوتاتي المربوطة', 'platform:my_bots')
+      .text('الاشتراكات وشحن الرصيد', 'platform:plans');
 
     if (isSuperAdmin) {
-      keyboard.row().text('👑 لوحة تحكم السوبر أدمن (إدارة المنصة)', 'platform:superadmin_main');
+      keyboard.row().text('لوحة إدارة المنصة (SuperAdmin)', 'platform:superadmin_main');
     }
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -805,12 +770,12 @@ function setupPlatformBotHandlers(bot: Bot) {
 
     if (!merchant) {
       const text =
-        `📋 <b>قائمة البوتات المربوطة:</b>\n\n` +
+        `<b>قائمة البوتات المربوطة:</b>\n\n` +
         `<i>لا يوجد أي بوت مربوط بحسابك حتى الآن. يمكنك ربط أول بوت لك الآن بكل سهولة.</i>`;
       const kb = new InlineKeyboard()
-        .text('➕ ربط بوت جديد', 'platform:link_bot')
+        .text('ربط بوت جديد', 'platform:link_bot')
         .row()
-        .text('🔙 الرئيسية', 'platform:main_menu');
+        .text('الرئيسية', 'platform:main_menu');
 
       if (ctx.callbackQuery) {
         await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
@@ -828,12 +793,12 @@ function setupPlatformBotHandlers(bot: Bot) {
 
     if (!bots || bots.length === 0) {
       const text =
-        `📋 <b>قائمة البوتات المربوطة:</b>\n\n` +
+        `<b>قائمة البوتات المربوطة:</b>\n\n` +
         `<i>لا يوجد أي بوت مربوط بحسابك حالياً. يمكنك ربط بوت جديد الآن.</i>`;
       const kb = new InlineKeyboard()
-        .text('➕ ربط بوت جديد', 'platform:link_bot')
+        .text('ربط بوت جديد', 'platform:link_bot')
         .row()
-        .text('🔙 الرئيسية', 'platform:main_menu');
+        .text('الرئيسية', 'platform:main_menu');
 
       if (ctx.callbackQuery) {
         await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
@@ -843,26 +808,26 @@ function setupPlatformBotHandlers(bot: Bot) {
       return;
     }
 
-    let text = `📋 <b>قائمة البوتات المربوطة بحسابك (${bots.length}):</b>\n\n`;
+    let text = `<b>قائمة البوتات المربوطة بحسابك (${bots.length}):</b>\n\n`;
     const keyboard = new InlineKeyboard();
 
     for (const b of bots) {
-      const statusBadge = b.status === 'active' ? '🟢 متصل ونشط' : b.status === 'connected' ? '🟡 متصل' : '🔴 معطل';
+      const statusBadge = b.status === 'active' ? '[متصل ونشط]' : b.status === 'connected' ? '[متصل]' : '[معطل]';
       const linkDate = new Date(b.created_at).toLocaleDateString('ar-EG');
 
-      text += `• <b>@${b.bot_username}</b> [${statusBadge}]\n`;
+      text += `• <b>@${b.bot_username}</b> ${statusBadge}\n`;
       text += `  معرف البوت: <code>${b.telegram_bot_id}</code> | تاريخ الربط: <code>${linkDate}</code>\n\n`;
 
       keyboard
-        .url(`🔗 فتح @${b.bot_username}`, `https://t.me/${b.bot_username}`)
+        .url(`فتح @${b.bot_username}`, `https://t.me/${b.bot_username}`)
         .row();
     }
 
     keyboard
-      .text('➕ ربط بوت جديد', 'platform:link_bot')
-      .text('🗑️ فصل ربط بوت', 'platform:unlink_picker')
+      .text('ربط بوت جديد', 'platform:link_bot')
+      .text('فصل ربط بوت', 'platform:unlink_picker')
       .row()
-      .text('🔙 الرئيسية', 'platform:main_menu');
+      .text('الرئيسية', 'platform:main_menu');
 
     if (ctx.callbackQuery) {
       await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
@@ -900,14 +865,14 @@ function setupPlatformBotHandlers(bot: Bot) {
     }
 
     const text =
-      `🗑️ <b>فصل وإلغاء ربط بوت:</b>\n\n` +
+      `<b>فصل وإلغاء ربط بوت:</b>\n\n` +
       `اختر البوت الذي ترغب في فصل ربطه من القائمة أدناه:`;
 
     const keyboard = new InlineKeyboard();
     for (const b of bots) {
-      keyboard.text(`🗑️ فصل ربط @${b.bot_username}`, `plat:confirm_unlink:${b.id}`).row();
+      keyboard.text(`فصل ربط @${b.bot_username}`, `plat:confirm_unlink:${b.id}`).row();
     }
-    keyboard.text('🔙 عودة لقائمة البوتات', 'platform:my_bots');
+    keyboard.text('عودة لقائمة البوتات', 'platform:my_bots');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
@@ -928,14 +893,14 @@ function setupPlatformBotHandlers(bot: Bot) {
     }
 
     const text =
-      `⚠️ <b>تأكيد فصل ربط البوت:</b>\n\n` +
+      `<b>تأكيد فصل ربط البوت:</b>\n\n` +
       `هل أنت متأكد من رغبتك في فصل وإلغاء ربط البوت <b>@${bot.bot_username}</b>؟\n\n` +
       `<i>سيتم حذف الـ Webhook الخاص به من خوادم تيليجرام فورياً ولن يستقبل أي فواتير حتى تعيد ربطه.</i>`;
 
     const keyboard = new InlineKeyboard()
-      .text('✅ نعم، تأكيد فصل الربط', `plat:do_unlink:${botId}`)
+      .text('نعم، تأكيد فصل الربط', `plat:do_unlink:${botId}`)
       .row()
-      .text('❌ تراجع وإلغاء', 'platform:my_bots');
+      .text('تراجع وإلغاء', 'platform:my_bots');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
@@ -955,21 +920,21 @@ function setupPlatformBotHandlers(bot: Bot) {
     try {
       const res = await unlinkBot(botId, merchant.id);
       invalidateBotCache(botId);
-      await ctx.answerCallbackQuery({ text: `✅ تم فصل ربط @${res.botUsername}` });
+      await ctx.answerCallbackQuery({ text: `تم فصل ربط @${res.botUsername}` });
 
       const text =
-        `✅ <b>تم فصل وإلغاء ربط البوت @${res.botUsername} بنجاح!</b>\n\n` +
+        `<b>تم فصل وإلغاء ربط البوت @${res.botUsername} بنجاح</b>\n\n` +
         `تم حذف الويب هوك الخاص بالبوت وتصفير اتصاله. يمكنك الآن إعادة ربطه بأي حساب آخر أو ربط بوت جديد بحرية.`;
 
       const keyboard = new InlineKeyboard()
-        .text('📋 استعراض بوتاتي', 'platform:my_bots')
-        .text('🤖 ربط بوت جديد', 'platform:link_bot')
+        .text('استعراض بوتاتي', 'platform:my_bots')
+        .text('ربط بوت جديد', 'platform:link_bot')
         .row()
-        .text('🔙 الرئيسية', 'platform:main_menu');
+        .text('الرئيسية', 'platform:main_menu');
 
       await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
     } catch (err: any) {
-      await ctx.answerCallbackQuery({ text: `⚠️ تعذر فصل الربط: ${err?.message}` });
+      await ctx.answerCallbackQuery({ text: `تعذر فصل الربط: ${err?.message}` });
       await renderMyBotsView(ctx, fromId);
     }
   });
@@ -978,14 +943,14 @@ function setupPlatformBotHandlers(bot: Bot) {
     const text =
       `<b>طريقة ربط وتفعيل بوت فواتير جديد:</b>\n\n` +
       `1. افتح بوت <b>@BotFather</b> وأنشئ بوتاً جديداً عبر الأمر <code>/newbot</code>.\n` +
-      `2. انسخ الـ <b>API Token</b> الذي يمنحك إياه BotFather.\n` +
-      `3. <b>أرسل التوكن هنا في هذه المحادثة مباشرة!</b>\n\n` +
+      `2. انسخ رمز الـ <b>API Token</b> الذي يمنحك إياه BotFather.\n` +
+      `3. <b>أرسل التوكن هنا في هذه المحادثة مباشرة.</b>\n\n` +
       `<i>يتم تشفير التوكن فورياً بأعلى معايير الأمان (AES-256-GCM).</i>`;
 
     const keyboard = new InlineKeyboard()
       .url('فتح @BotFather', 'https://t.me/BotFather')
       .row()
-      .text('🔙 الرئيسية', 'platform:main_menu');
+      .text('الرئيسية', 'platform:main_menu');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
@@ -997,7 +962,7 @@ function setupPlatformBotHandlers(bot: Bot) {
       `• يلتزم التاجر بتقديم خدمات مشروعة تتوافق مع القوانين والأنظمة.\n` +
       `• تضمن المنصة تشفير بيانات الاعتماد وعدم مشاركة أي توكنات مع أطراف خارجية.`;
 
-    const keyboard = new InlineKeyboard().text('🔙 الرئيسية', 'platform:main_menu');
+    const keyboard = new InlineKeyboard().text('الرئيسية', 'platform:main_menu');
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });
 
@@ -1009,7 +974,7 @@ function setupPlatformBotHandlers(bot: Bot) {
     const keyboard = new InlineKeyboard()
       .url('تواصل مع الدعم', 'https://t.me/telegram')
       .row()
-      .text('🔙 الرئيسية', 'platform:main_menu');
+      .text('الرئيسية', 'platform:main_menu');
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
   });

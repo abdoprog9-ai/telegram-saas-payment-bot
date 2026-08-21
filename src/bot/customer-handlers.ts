@@ -54,7 +54,7 @@ export async function renderCustomerHome(ctx: any, merchantId: string, botId: st
   if (pendingInvoices && pendingInvoices.length > 0) {
     text += `<b>الفواتير المستحقة للسداد:</b>\n\n`;
     for (const inv of pendingInvoices) {
-      text += `• <b>${inv.title}</b>: <code>${inv.total_amount} ⭐️ Stars</code> (رقم: <code>${inv.invoice_number}</code>)\n`;
+      text += `• <b>${inv.title}</b>: <code>${inv.total_amount} Stars</code> (رقم: <code>${inv.invoice_number}</code>)\n`;
       keyboard.text(`سداد فاتورة ${inv.invoice_number}`, `pay:inv:${inv.id}`).row();
     }
   } else {

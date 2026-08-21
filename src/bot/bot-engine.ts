@@ -178,7 +178,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
         `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
         `• البيان: <b>${invoice.title}</b>\n` +
         (invoice.description ? `• التفاصيل: ${invoice.description}\n` : '') +
-        `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+        `• المبلغ المطلوب: <b>${invoice.total_amount} Stars</b>\n\n` +
         `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
 
       await ctx.reply(cardText, { parse_mode: 'HTML' });
@@ -265,7 +265,7 @@ export async function getOrCreateBotInstance(botId: string): Promise<CachedBot> 
             `• رقم الفاتورة: <code>${invoice.invoice_number}</code>\n` +
             `• البيان: <b>${invoice.title}</b>\n` +
             (invoice.description ? `• التفاصيل: ${invoice.description}\n` : '') +
-            `• المبلغ المطلوب: <b>${invoice.total_amount} ⭐️ Stars</b>\n\n` +
+            `• المبلغ المطلوب: <b>${invoice.total_amount} Stars</b>\n\n` +
             `<i>تم إرسال نموذج السداد بنجوم تيليجرام أدناه:</i>`;
 
           await ctx.reply(cardText, { parse_mode: 'HTML' });
